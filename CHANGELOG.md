@@ -10,6 +10,7 @@
 
 ### Fixed
 
+- Give each persisted pi session its own Cursor SDK SQLite store under the workspace SDK state root and thread that exact store through local create/resume, message reads, checkpoint lookup, delete, and explicit cleanup paths, preventing parallel pi sessions from contending on one workspace `index.db`. Fileless acquisitions use unique OS-temporary stores with guarded graceful removal and start a fresh agent after in-process invalidation instead of reopening a disposed temporary store. Resume entries now version their store identity; legacy entries keep the default workspace store for resume and migrate to the per-session store after fallback or replacement. Older extension versions ignore the new version-2 resume entries after a downgrade.
 - Initialize `CURSOR_RIPGREP_PATH` from the installed Cursor SDK platform package before local agent creation, including nested npm dependency layouts, so Cursor-native Grep/Glob can use the bundled executable.
 - Bound pending pi bridge `CallTool` waits to the effective MCP tool timeout, with a lower-only `PI_CURSOR_PI_BRIDGE_CALL_TIMEOUT_MS` override; expiry and cancellation remove stale calls and abort active pi execution when available.
 
