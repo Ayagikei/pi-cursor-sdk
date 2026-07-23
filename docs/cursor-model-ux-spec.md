@@ -722,7 +722,7 @@ Before calling done:
    - verify default pi footer remains unchanged
    - verify Cursor status appears only for Cursor models
    - verify Cursor fast-capable local models show `cursor:local · fast:on` or `cursor:local · fast:off`
-   - verify enabled local HTTP/1.1 shows `http1`, while default/local-disabled and all cloud statuses omit it
+   - required `cursor-http1-live` platform lane proves an enabled local HTTP/1.1/SSE turn completes and shows `http1`; unit/default live lanes prove local-disabled and cloud statuses omit it
    - verify Cursor `plan` status appears only in non-default mode and combines with status as `cursor:local · fast:n/a · plan`, `cursor:local · fast:on · plan`, `cursor:local · fast:off · plan`, or `cursor:cloud · fast:n/a · plan`
    - verify non-cursor footer/status unchanged
    - verify `shift+tab` uses pi native thinking

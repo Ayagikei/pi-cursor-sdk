@@ -1,13 +1,13 @@
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { Agent, createAgentPlatform, type LocalAgentStore } from "@cursor/sdk";
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 import {
 	buildCursorSessionStateRoot,
-	claimCursorTemporarySessionStore,
 	hashCursorSessionStoreScope,
 	openCursorSessionStore,
+	openCursorSessionStoreForScope,
 	__testUtils as storeTestUtils,
 } from "../src/cursor-session-store.js";
 
@@ -31,80 +31,96 @@ describe("cursor session store identity", () => {
 		expect(anonymous).toContain("pi-sessions");
 	});
 
-	it("removes an extension-owned temporary store after graceful disposal", async () => {
-		storeTestUtils.setSdkOperations(undefined);
-		const root = mkdtempSync(join(tmpdir(), "pi-cursor-ephemeral-store-"));
-		const stateRoot = buildCursorSessionStateRoot(root, "ephemeral", false);
-		claimCursorTemporarySessionStore({ version: 1, stateRoot });
-		const store = await openCursorSessionStore(root, { version: 1, stateRoot }, true);
-		expect(existsSync(stateRoot)).toBe(true);
-
-		await store.dispose();
-
-		expect(existsSync(stateRoot)).toBe(false);
-		rmSync(root, { recursive: true, force: true });
-	});
-
-	it("refuses to remove a shared store even when its path resembles a session root", async () => {
-		const workspaceRoot = mkdtempSync(join(tmpdir(), "pi-cursor-shared-store-"));
-		const stateRoot = join(workspaceRoot, "pi-sessions", "a".repeat(32));
-		const marker = join(stateRoot, "keep.txt");
-		mkdirSync(stateRoot, { recursive: true });
-		writeFileSync(marker, "keep");
-
-		await expect(openCursorSessionStore(workspaceRoot, { version: 1, stateRoot }, true)).rejects.toThrow("Refusing to remove");
-		expect(existsSync(marker)).toBe(true);
-		rmSync(workspaceRoot, { recursive: true, force: true });
-	});
-
-	it("binds temporary removal to the authorized identity before SQLite opens", async () => {
-		const workspaceRoot = mkdtempSync(join(tmpdir(), "pi-cursor-store-mutation-"));
-		const stateRoot = buildCursorSessionStateRoot(workspaceRoot, "ephemeral", false);
-		const identity = { version: 1 as const, stateRoot };
-		const fakeStore = { dispose: vi.fn(async () => {}) } as unknown as LocalAgentStore & { dispose(): Promise<void> };
-		let resolveOpen: () => void = () => {};
-		const openSqliteStore = vi.fn(() => new Promise<typeof fakeStore>((resolve) => {
-			resolveOpen = () => resolve(fakeStore);
-		}));
-		storeTestUtils.setSdkOperations({ getDefaultStateRoot: () => workspaceRoot, openSqliteStore });
-		mkdirSync(stateRoot, { recursive: true });
-		claimCursorTemporarySessionStore(identity);
-		const opening = openCursorSessionStore(workspaceRoot, identity, true);
-		const sharedRoot = join(workspaceRoot, "shared");
-		const marker = join(sharedRoot, "keep.txt");
-		mkdirSync(sharedRoot, { recursive: true });
-		writeFileSync(marker, "keep");
-		identity.stateRoot = sharedRoot;
-		await vi.waitFor(() => expect(openSqliteStore).toHaveBeenCalledTimes(1));
-		resolveOpen();
-
+	it("never resumes a fileless acquisition from the shared default store", async () => {
+		const workspaceRoot = mkdtempSync(join(tmpdir(), "pi-cursor-fileless-shared-store-"));
+		storeTestUtils.setSdkOperations({
+			getDefaultStateRoot: () => workspaceRoot,
+			openSqliteStore: async () => ({
+				dispose: async () => {},
+			}) as unknown as LocalAgentStore & { dispose(): Promise<void> },
+		});
 		try {
-			const store = await opening;
-			await store.dispose();
-			expect(store.identity.stateRoot).toBe(stateRoot);
-			expect(existsSync(stateRoot)).toBe(false);
-			expect(existsSync(marker)).toBe(true);
+			const selection = await openCursorSessionStoreForScope({
+				cwd: workspaceRoot,
+				scopeKey: "ephemeral",
+				persistent: false,
+				hasResumeHandle: true,
+				resumeIdentity: { version: 1, stateRoot: workspaceRoot },
+			});
+			expect(selection.resumeAttemptAllowed).toBe(false);
+			expect(selection.sessionStore.identity.stateRoot).not.toBe(workspaceRoot);
+			await selection.sessionStore.dispose();
 		} finally {
 			storeTestUtils.setSdkOperations(undefined);
 			rmSync(workspaceRoot, { recursive: true, force: true });
 		}
 	});
 
-	it("removes a temporary root even when SQLite disposal fails", async () => {
-		const workspaceRoot = mkdtempSync(join(tmpdir(), "pi-cursor-store-dispose-failure-"));
-		const stateRoot = buildCursorSessionStateRoot(workspaceRoot, "ephemeral", false);
-		mkdirSync(stateRoot, { recursive: true });
-		claimCursorTemporarySessionStore({ version: 1, stateRoot });
-		storeTestUtils.setSdkOperations({
-			getDefaultStateRoot: () => workspaceRoot,
-			openSqliteStore: async () => ({
-				dispose: async () => { throw new Error("dispose failed"); },
-			}) as unknown as LocalAgentStore & { dispose(): Promise<void> },
+	it("removes a factory-owned temporary store after graceful disposal", async () => {
+		storeTestUtils.setSdkOperations(undefined);
+		const root = mkdtempSync(join(tmpdir(), "pi-cursor-ephemeral-store-"));
+		const selection = await openCursorSessionStoreForScope({
+			cwd: root,
+			scopeKey: "ephemeral",
+			persistent: false,
+			hasResumeHandle: false,
+		});
+		const removalRoot = dirname(dirname(selection.sessionStore.identity.stateRoot));
+		expect(existsSync(selection.sessionStore.identity.stateRoot)).toBe(true);
+
+		await selection.sessionStore.dispose();
+
+		expect(existsSync(removalRoot)).toBe(false);
+		rmSync(root, { recursive: true, force: true });
+	});
+
+	it("never grants temporary-removal ownership to a caller-supplied store", async () => {
+		const workspaceRoot = mkdtempSync(join(tmpdir(), "pi-cursor-shared-store-"));
+		const sharedRoot = join(workspaceRoot, "shared");
+		const marker = join(sharedRoot, "keep.txt");
+		mkdirSync(sharedRoot, { recursive: true });
+		writeFileSync(marker, "keep");
+		const selection = await openCursorSessionStoreForScope({
+			cwd: workspaceRoot,
+			scopeKey: "persisted-session",
+			persistent: true,
+			hasResumeHandle: true,
+			resumeIdentity: { version: 1, stateRoot: sharedRoot },
 		});
 		try {
-			const store = await openCursorSessionStore(workspaceRoot, { version: 1, stateRoot }, true);
-			await expect(store.dispose()).rejects.toThrow("dispose failed");
-			expect(existsSync(stateRoot)).toBe(false);
+			expect(selection.resumeAttemptAllowed).toBe(false);
+			expect(selection.resumeFallback).toBe(true);
+			expect(selection.sessionStore.identity.stateRoot).not.toBe(sharedRoot);
+		} finally {
+			await selection.sessionStore.dispose();
+			expect(existsSync(marker)).toBe(true);
+			rmSync(workspaceRoot, { recursive: true, force: true });
+		}
+	});
+
+	it("removes a temporary root even when SQLite disposal fails", async () => {
+		const workspaceRoot = mkdtempSync(join(tmpdir(), "pi-cursor-store-dispose-failure-"));
+		let stateRoot = "";
+		storeTestUtils.setSdkOperations({
+			getDefaultStateRoot: () => workspaceRoot,
+			openSqliteStore: async (options) => {
+				stateRoot = options.stateRoot;
+				mkdirSync(stateRoot, { recursive: true });
+				return {
+					dispose: async () => { throw new Error("dispose failed"); },
+				} as unknown as LocalAgentStore & { dispose(): Promise<void> };
+			},
+		});
+		try {
+			const selection = await openCursorSessionStoreForScope({
+				cwd: workspaceRoot,
+				scopeKey: "ephemeral",
+				persistent: false,
+				hasResumeHandle: false,
+			});
+			const removalRoot = dirname(dirname(stateRoot));
+			await expect(selection.sessionStore.dispose()).rejects.toThrow("dispose failed");
+			expect(existsSync(removalRoot)).toBe(false);
 		} finally {
 			storeTestUtils.setSdkOperations(undefined);
 			rmSync(workspaceRoot, { recursive: true, force: true });

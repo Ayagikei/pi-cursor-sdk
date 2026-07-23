@@ -15,10 +15,9 @@ import {
 import type { CursorSdkEventDebugRecorder } from "./cursor-sdk-event-debug.js";
 import { loadCursorSdk, type CursorSdkModule } from "./cursor-sdk-runtime.js";
 import {
-	claimCursorTemporarySessionStore,
 	cursorSessionStoreIdentitiesEqual,
-	getCursorSessionStoreIdentities,
 	openCursorSessionStore,
+	openCursorSessionStoreForScope,
 	type CursorSessionStoreIdentity,
 	type OpenCursorSessionStore,
 } from "./cursor-session-store.js";
@@ -467,33 +466,18 @@ async function createSessionAgentEntry(
 			createAgent ??= sdk.Agent.create;
 			resumeAgent ??= sdk.Agent.resume;
 		}
-		const identities = await getCursorSessionStoreIdentities(params.cwd, scopeKey, persistentStore);
-		const openSessionStore = (identity: CursorSessionStoreIdentity) => {
-			if (!persistentStore) claimCursorTemporarySessionStore(identity);
-			return openCursorSessionStore(params.cwd, identity, !persistentStore);
-		};
 		const resumeHandle = resumeEligible ? getMatchingCursorSessionAgentResumeHandle(resolvedPoolKey) : undefined;
-		const recordedStoreIdentity = resumeHandle?.storeIdentity;
-		const resumableStoreIdentities = persistentStore
-			? [identities.defaultStore, identities.sessionStore]
-			: [identities.sessionStore];
-		const resumeStoreIdentity = resumeHandle
-			? recordedStoreIdentity === undefined
-				? persistentStore ? identities.defaultStore : undefined
-				: resumableStoreIdentities.find((identity) =>
-					cursorSessionStoreIdentitiesEqual(identity, recordedStoreIdentity),
-				)
-			: undefined;
-		let resumeAttemptAllowed = resumeHandle !== undefined && resumeStoreIdentity !== undefined;
-		let resumeNotice = persistentStore && resumeHandle && !resumeStoreIdentity ? LOCAL_RESUME_FALLBACK_NOTICE : undefined;
-		try {
-			sessionStore = await openSessionStore(resumeStoreIdentity ?? identities.sessionStore);
-		} catch (error) {
-			if (!resumeStoreIdentity || cursorSessionStoreIdentitiesEqual(resumeStoreIdentity, identities.sessionStore)) throw error;
-			resumeAttemptAllowed = false;
-			if (persistentStore) resumeNotice = LOCAL_RESUME_FALLBACK_NOTICE;
-			sessionStore = await openSessionStore(identities.sessionStore);
-		}
+		const storeSelection = await openCursorSessionStoreForScope({
+			cwd: params.cwd,
+			scopeKey,
+			persistent: persistentStore,
+			hasResumeHandle: resumeHandle !== undefined,
+			resumeIdentity: resumeHandle?.storeIdentity,
+		});
+		sessionStore = storeSelection.sessionStore;
+		const { identities } = storeSelection;
+		const resumeAttemptAllowed = storeSelection.resumeAttemptAllowed;
+		let resumeNotice = storeSelection.resumeFallback ? LOCAL_RESUME_FALLBACK_NOTICE : undefined;
 		const buildAgentOptions = () => ({
 			apiKey: params.apiKey,
 			model: params.modelSelection,
@@ -518,12 +502,13 @@ async function createSessionAgentEntry(
 				if (persistentStore) resumeNotice = LOCAL_RESUME_FALLBACK_NOTICE;
 				if (!cursorSessionStoreIdentitiesEqual(sessionStore.identity, identities.sessionStore)) {
 					await sessionStore.dispose().catch(() => undefined);
-					sessionStore = await openSessionStore(identities.sessionStore);
+					sessionStore = await openCursorSessionStore(params.cwd, identities.sessionStore);
 				}
 			}
 		}
 		agent ??= await createAgent(buildAgentOptions());
 		if (!agent) throw new Error("Cursor SDK agent creation returned no agent");
+		if (!sessionStore) throw new Error("Cursor SDK session store was not opened");
 
 		return {
 			status: "ready",

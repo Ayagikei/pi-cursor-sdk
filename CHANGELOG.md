@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.1.61 - 2026-07-22
 
 ### Added
 
@@ -13,10 +13,19 @@
 - Give each persisted pi session its own Cursor SDK SQLite store under the workspace SDK state root and thread that exact store through local create/resume, message reads, checkpoint lookup, delete, and explicit cleanup paths, preventing parallel pi sessions from contending on one workspace `index.db`. Fileless acquisitions use unique OS-temporary stores with guarded graceful removal and start a fresh agent after in-process invalidation instead of reopening a disposed temporary store. Resume entries now version their store identity; legacy entries keep the default workspace store for resume and migrate to the per-session store after fallback or replacement. Older extension versions ignore the new version-2 resume entries after a downgrade.
 - Initialize `CURSOR_RIPGREP_PATH` from the installed Cursor SDK platform package before local agent creation, including nested npm dependency layouts, so Cursor-native Grep/Glob can use the bundled executable.
 - Bound pending pi bridge `CallTool` waits to the effective MCP tool timeout, with a lower-only `PI_CURSOR_PI_BRIDGE_CALL_TIMEOUT_MS` override; expiry and cancellation remove stale calls and abort active pi execution when available.
+- Fail closed before Cursor Cloud agent creation when an explicit repository/ref cannot be matched to one unambiguous local remote-tracking target, when local state is dirty/unpushed/unverifiable, or when Git metadata, URL rewriting, refspec ownership, replacement/graft ancestry, sparse-index state, or ambient Git redirection makes the target uncertain. `--cursor-cloud-allow-local-state` remains the explicit override.
+- Require project-trust provenance from Pi's `project_trust` event or explicit `--approve` before reading or writing `.pi/cursor-sdk.json`; project-local package installs loaded after trust resolution must use `--approve`, and concurrent config writers preserve unrecognized fields through a serialized read-modify-write update.
+- Preserve scrubbed Cursor Cloud authentication and GitHub integration remediation without exposing credentials, URL userinfo, bearer values, or unsafe help URLs.
+- Suppress raw Cursor SDK `AbortError` DOMException/Error process failures only while an active provider turn has declared abort suppression and the stack has Cursor SDK provenance; inactive, undeclared, and non-Cursor abort errors remain visible.
 
 ### Changed
 
 - Expand the maintainer-only `npm run smoke:cloud` release gate to create, seed, and delete a private UUID-named GitHub repository while proving cancel, starting-ref branch, direct-push, missing-branch, lifecycle-delete, exact agent cleanup, and authenticated repository-deletion contracts. Add fail-closed `SIGINT`/`SIGTERM` handling, including a real event-loop checkpoint before the atomic evidence commit and handlers retained through process teardown, plus account-conditional artifact/raw-usage observations. The gate now requires `gh` authorization to create/push/delete private repositories; product runtime behavior and defaults are unchanged.
+- Add a required packed-install `cursor-http1-live` platform lane on macOS, Ubuntu, and native Windows that completes a real HTTP/1.1/SSE local provider turn and asserts the visible `http1` status.
+
+### Security
+
+- Refresh lock-resolved `hono`, `fast-uri`, and `body-parser` to patched versions. `npm audit --omit=dev` still reports five vulnerable package entries covering ten public transitive advisories: the pinned Cursor SDK's ConnectRPC path has no compatible fixed `undici` release, while the MCP SDK's remaining Hono `serve-static` advisory is fixed only in a major `@hono/node-server` version outside the SDK's declared range and is not exercised by this extension's loopback `StreamableHTTPServerTransport`; no compatible non-breaking upstream update is currently available for those remaining paths.
 
 ## 0.1.60 - 2026-07-17
 

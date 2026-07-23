@@ -16,12 +16,21 @@ export interface OpenCursorSessionStore {
 	dispose(): Promise<void>;
 }
 
+export interface CursorSessionStoreSelection {
+	sessionStore: OpenCursorSessionStore;
+	identities: {
+		defaultStore: CursorSessionStoreIdentity;
+		sessionStore: CursorSessionStoreIdentity;
+	};
+	resumeAttemptAllowed: boolean;
+	resumeFallback: boolean;
+}
+
 interface CursorSessionStoreSdkOperations {
 	getDefaultStateRoot(cwd: string): string | Promise<string>;
 	openSqliteStore(options: { workspaceRef: string; stateRoot: string }): Promise<LocalAgentStore & { dispose(): Promise<void> }>;
 }
 
-const removableTemporaryStateRoots = new Map<string, string>();
 let sdkOperationsForTests: CursorSessionStoreSdkOperations | undefined;
 
 export function hashCursorSessionStoreScope(scopeKey: string): string {
@@ -71,25 +80,18 @@ export function cursorSessionStoreIdentitiesEqual(
 	return left.version === right.version && left.stateRoot === right.stateRoot;
 }
 
-export function claimCursorTemporarySessionStore(identity: CursorSessionStoreIdentity): void {
-	removableTemporaryStateRoots.set(identity.stateRoot, dirname(dirname(identity.stateRoot)));
-}
-
-export async function openCursorSessionStore(
+async function openOwnedCursorSessionStore(
 	cwd: string,
 	identity: CursorSessionStoreIdentity,
-	removeOnDispose = false,
+	removalRoot?: string,
 ): Promise<OpenCursorSessionStore> {
 	const openedIdentity = Object.freeze({ ...identity });
-	const stateRoot = openedIdentity.stateRoot;
-	const removalRoot = removeOnDispose ? removableTemporaryStateRoots.get(stateRoot) : undefined;
-	if (removeOnDispose && !removalRoot) {
-		throw new Error("Refusing to remove a Cursor SDK store without temporary-store ownership");
-	}
-	if (removeOnDispose) removableTemporaryStateRoots.delete(stateRoot);
 	let store: LocalAgentStore & { dispose(): Promise<void> };
 	try {
-		store = await (await getSdkOperations()).openSqliteStore({ workspaceRef: cwd, stateRoot: toNamespacedPath(stateRoot) });
+		store = await (await getSdkOperations()).openSqliteStore({
+			workspaceRef: cwd,
+			stateRoot: toNamespacedPath(openedIdentity.stateRoot),
+		});
 	} catch (error) {
 		if (removalRoot) await rm(removalRoot, { recursive: true, force: true }).catch(() => undefined);
 		throw error;
@@ -105,6 +107,45 @@ export async function openCursorSessionStore(
 			}
 		},
 	};
+}
+
+export function openCursorSessionStore(
+	cwd: string,
+	identity: CursorSessionStoreIdentity,
+): Promise<OpenCursorSessionStore> {
+	return openOwnedCursorSessionStore(cwd, identity);
+}
+
+export async function openCursorSessionStoreForScope(options: {
+	cwd: string;
+	scopeKey: string;
+	persistent: boolean;
+	hasResumeHandle: boolean;
+	resumeIdentity?: CursorSessionStoreIdentity;
+}): Promise<CursorSessionStoreSelection> {
+	const identities = await getCursorSessionStoreIdentities(options.cwd, options.scopeKey, options.persistent);
+	const requestedResumeIdentity = options.hasResumeHandle
+		? options.resumeIdentity ?? (options.persistent ? identities.defaultStore : undefined)
+		: undefined;
+	const resumableIdentities = options.persistent
+		? [identities.defaultStore, identities.sessionStore]
+		: [identities.sessionStore];
+	const resumeIdentity = requestedResumeIdentity && resumableIdentities
+		.find((identity) => cursorSessionStoreIdentitiesEqual(identity, requestedResumeIdentity));
+	let resumeAttemptAllowed = options.hasResumeHandle && resumeIdentity !== undefined;
+	let resumeFallback = options.persistent && options.hasResumeHandle && !resumeIdentity;
+	const selectedIdentity = resumeIdentity ?? identities.sessionStore;
+	const removalRoot = options.persistent ? undefined : dirname(dirname(identities.sessionStore.stateRoot));
+	let sessionStore: OpenCursorSessionStore;
+	try {
+		sessionStore = await openOwnedCursorSessionStore(options.cwd, selectedIdentity, removalRoot);
+	} catch (error) {
+		if (!resumeIdentity || cursorSessionStoreIdentitiesEqual(resumeIdentity, identities.sessionStore)) throw error;
+		resumeAttemptAllowed = false;
+		resumeFallback = true;
+		sessionStore = await openOwnedCursorSessionStore(options.cwd, identities.sessionStore);
+	}
+	return { sessionStore, identities, resumeAttemptAllowed, resumeFallback };
 }
 
 export const __testUtils = {
