@@ -16,13 +16,23 @@ import { initTrackedGitRepo as initTrackedRepo, runGit as git } from "./helpers/
 
 describe("Cursor cloud local state", () => {
 	let root: string;
+	let cleanHome: string;
+	let previousHome: string | undefined;
 
 	beforeEach(() => {
 		root = mkdtempSync(join(tmpdir(), "pi-cursor-cloud-local-state-"));
+		// Ambient git probes intentionally read user config via HOME/.gitconfig.
+		// Isolate every case from the host global config (e.g. url.*.insteadof).
+		cleanHome = mkdtempSync(join(tmpdir(), "pi-cursor-cloud-local-state-home-"));
+		previousHome = process.env.HOME;
+		process.env.HOME = cleanHome;
 	});
 
 	afterEach(() => {
+		if (previousHome === undefined) delete process.env.HOME;
+		else process.env.HOME = previousHome;
 		rmSync(root, { recursive: true, force: true });
+		rmSync(cleanHome, { recursive: true, force: true });
 	});
 
 	it("scrubs Git child environment names case-insensitively and installs canonical null config", () => {

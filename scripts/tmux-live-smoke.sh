@@ -412,10 +412,14 @@ log "partial live smoke: prereq, basic, default-settings, noninteractive-math, t
 "${BASE_ENV[@]}" "$PI_BIN" --version | tee "$SMOKE_DIR/prereq.pi-version.txt"
 "${BASE_ENV[@]}" "$NPM_BIN" --prefix "$ROOT" ls @cursor/sdk @earendil-works/pi-coding-agent @earendil-works/pi-ai @earendil-works/pi-tui | tee "$SMOKE_DIR/prereq.npm-ls.txt"
 
-if ! "${NONE_ENV[@]}" "${PI_BASE[@]}" --list-models cursor 2>"$SMOKE_DIR/prereq.stderr.txt" | tee "$SMOKE_DIR/prereq.models.txt" | "$RG_BIN" -q "composer-2\\.5"; then
-	if ! model_listed "$SMOKE_DIR/prereq.stderr.txt"; then
-		fail "cursor/composer-2-5 not listed"
-	fi
+# Capture the full catalog first. Do not pipe list-models into rg -q under pipefail:
+# large catalogs make rg exit early and SIGPIPE the pi child (status 141).
+if ! "${NONE_ENV[@]}" "${PI_BASE[@]}" --list-models cursor \
+	>"$SMOKE_DIR/prereq.models.txt" 2>"$SMOKE_DIR/prereq.stderr.txt"; then
+	fail "pi --list-models cursor failed"
+fi
+if ! model_listed "$SMOKE_DIR/prereq.models.txt" && ! model_listed "$SMOKE_DIR/prereq.stderr.txt"; then
+	fail "cursor/composer-2-5 not listed"
 fi
 log "prereq PASS"
 
