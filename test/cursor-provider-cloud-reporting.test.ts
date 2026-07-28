@@ -53,7 +53,7 @@ describe("streamCursor cloud reporting", () => {
 					update: {
 						type: "turn-ended",
 						usage: {
-							inputTokens: 7,
+							inputTokens: 26,
 							outputTokens: 8,
 							cacheReadTokens: 9,
 							cacheWriteTokens: 10,
@@ -97,7 +97,7 @@ describe("streamCursor cloud reporting", () => {
 			expect(done.message.usage.output).toBe(8);
 			expect(done.message.usage.cacheRead).toBe(9);
 			expect(done.message.usage.cacheWrite).toBe(10);
-			expect(done.message.usage.totalTokens).toBe(15);
+			expect(done.message.usage.totalTokens).toBe(34);
 			const doneContent = JSON.stringify(done.message.content);
 			expect(doneContent).not.toContain("Cursor cloud run:");
 			expect(doneContent).not.toContain(CLOUD_AGENT_ID);

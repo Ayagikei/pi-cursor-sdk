@@ -91,7 +91,7 @@ describe("streamCursor usage accounting", () => {
 		const events = await collectEvents(stream);
 		const done = getDoneEvent(events);
 
-		expect(done.message.usage.input).toBe(25_432);
+		expect(done.message.usage.input).toBe(25_432 - 24_000 - 123);
 		expect(done.message.usage.output).toBe(612);
 		expect(done.message.usage.cacheRead).toBe(24_000);
 		expect(done.message.usage.cacheWrite).toBe(123);

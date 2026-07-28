@@ -165,6 +165,7 @@ Session summaries can hide per-message usage bugs. When investigating token or c
 
 - `usage.input`, `usage.output`, `usage.cacheRead`, and `usage.cacheWrite` are additive spend-style counters for the assistant turn.
 - `usage.totalTokens` is pi context occupancy for that turn, not a value to sum across all assistant messages.
+- Cursor SDK `inputTokens` is the full prompt; map to pi as uncached `input = inputTokens - cacheReadTokens - cacheWriteTokens` and `totalTokens = inputTokens + outputTokens`.
 - No single assistant message should persist SDK/full-agent-context-sized usage outside the selected model window.
 - Real bad-session evidence should be reduced to a sanitized fixture, like `test/fixtures/cursor-run-usage-compaction-poison.jsonl`, instead of committing raw session JSONL.
 

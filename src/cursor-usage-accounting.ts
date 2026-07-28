@@ -84,23 +84,45 @@ export function estimateCursorContextTotalTokens(partial: AssistantMessage, mode
 	return estimateCursorContextTokens(withAssistantMessage(context, partial), getCursorPromptOptions(model));
 }
 
+function getCursorSdkUncachedInputTokens(turnUsage: CursorSdkTurnUsage): number {
+	// SDK inputTokens is the full prompt; cache fields are a partition of it (pi-additive components).
+	return turnUsage.inputTokens - turnUsage.cacheReadTokens - turnUsage.cacheWriteTokens;
+}
+
 export function isCursorSdkUsageSafeForPiMessage(turnUsage: CursorSdkTurnUsage, model: Model<Api>): boolean {
-	// SDK inputTokens is the full prompt size; cacheRead/cacheWrite are a breakdown of it, not additive.
 	const counts = [turnUsage.inputTokens, turnUsage.outputTokens, turnUsage.cacheReadTokens, turnUsage.cacheWriteTokens];
+	const uncachedInput = getCursorSdkUncachedInputTokens(turnUsage);
 	return (
 		counts.every((count) => Number.isFinite(count) && count >= 0) &&
+		Number.isFinite(uncachedInput) &&
+		uncachedInput >= 0 &&
 		turnUsage.outputTokens <= model.maxTokens &&
 		turnUsage.inputTokens + turnUsage.outputTokens <= model.contextWindow
 	);
 }
 
 export function applyCursorSdkUsage(partial: AssistantMessage, turnUsage: CursorSdkTurnUsage): void {
-	partial.usage.input = turnUsage.inputTokens;
+	// Pi treats input/cacheRead/cacheWrite as disjoint additive prompt components.
+	partial.usage.input = getCursorSdkUncachedInputTokens(turnUsage);
 	partial.usage.output = turnUsage.outputTokens;
 	partial.usage.cacheRead = turnUsage.cacheReadTokens;
 	partial.usage.cacheWrite = turnUsage.cacheWriteTokens;
-	// totalTokens is context size for pi compaction; do not add cache fields (breakdown of input).
+	// totalTokens is context occupancy (full prompt + output), not the sum of spend components alone.
 	partial.usage.totalTokens = turnUsage.inputTokens + turnUsage.outputTokens;
+}
+
+function getLastAcceptedContextOccupancy(context: Context): number {
+	for (let index = context.messages.length - 1; index >= 0; index -= 1) {
+		const message = context.messages[index];
+		if (message.role !== "assistant" || !("usage" in message)) continue;
+		const assistant = message as AssistantMessage;
+		if (assistant.stopReason === "aborted" || assistant.stopReason === "error" || !assistant.usage) continue;
+		const { usage } = assistant;
+		const total =
+			usage.totalTokens || usage.input + usage.output + usage.cacheRead + usage.cacheWrite;
+		if (Number.isFinite(total) && total > 0) return total;
+	}
+	return 0;
 }
 
 export function applyCursorApproximateUsage(partial: AssistantMessage, model: Model<Api>, context: Context, sessionInputTokens: number): void {
@@ -109,9 +131,11 @@ export function applyCursorApproximateUsage(partial: AssistantMessage, model: Mo
 	partial.usage.output = outputTokens;
 	partial.usage.cacheRead = 0;
 	partial.usage.cacheWrite = 0;
+	// Never report less occupancy than the last accepted assistant measurement in this context.
 	partial.usage.totalTokens = Math.max(
 		partial.usage.input + partial.usage.output,
 		estimateCursorContextTotalTokens(partial, model, context),
+		getLastAcceptedContextOccupancy(context),
 	);
 }
 
