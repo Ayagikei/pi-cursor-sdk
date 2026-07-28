@@ -4,7 +4,7 @@
 
 ### Fixed
 
-- Suppress Cursor SDK `DOMException [AbortError]` while any provider turn or session guard is active (stall detector / inter-turn timers), and classify `Connection stalled repeatedly` ConnectErrors as retryable network failures (#194, #197).
+- Suppress Cursor SDK `DOMException [AbortError]` while any provider turn or session guard is active (stall detector / inter-turn timers), and treat installed SDK `RetriableError: Connection stalled repeatedly` as a retryable network failure (#194, #197).
 - Map Cursor SDK prompt usage into pi-additive components (`input = inputTokens - cacheRead - cacheWrite`) with `totalTokens = inputTokens + outputTokens`, reject invalid cache partitions, and floor approximate occupancy at the last accepted assistant measurement (#196).
 
 ## 0.1.61 - 2026-07-22
