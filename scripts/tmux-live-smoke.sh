@@ -365,6 +365,32 @@ EOF_SELFTEST_NODE
 	if grep -q '^PI_CURSOR_SETTING_SOURCES=' "$env_capture"; then
 		fail "self-test failed: default-settings env did not unset PI_CURSOR_SETTING_SOURCES"
 	fi
+	# Large-catalog prereq: capture list-models fully, then search (no pipefail SIGPIPE).
+	fake_list_pi="$bin_dir/pi-list-models"
+	cat >"$fake_list_pi" <<'EOF_FAKE_LIST'
+#!/usr/bin/env bash
+# Emit a large catalog; exit 0. Must not be killed by a consumer closing early.
+i=0
+while [[ $i -lt 400 ]]; do
+	printf 'cursor/model-%s\n' "$i"
+	i=$((i + 1))
+done
+printf 'cursor/composer-2.5\n'
+exit 0
+EOF_FAKE_LIST
+	chmod +x "$fake_list_pi"
+	catalog_out="$temp_dir/catalog.out"
+	catalog_err="$temp_dir/catalog.err"
+	if ! "$fake_list_pi" >"$catalog_out" 2>"$catalog_err"; then
+		fail "self-test failed: large catalog list-models capture exited non-zero"
+	fi
+	if ! grep -q 'composer-2\.5' "$catalog_out"; then
+		fail "self-test failed: large catalog capture missing composer-2.5"
+	fi
+	if [[ "$(wc -l <"$catalog_out" | tr -d ' ')" -lt 400 ]]; then
+		fail "self-test failed: large catalog was truncated before search"
+	fi
+
 	printf '[smoke] self-test PASS\n'
 }
 
