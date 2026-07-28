@@ -56,10 +56,10 @@ describe("Cursor SDK raw AbortError process guard", () => {
 		}
 	});
 
-	it("does not suppress a provider turn that has not declared abort suppression", () => {
+	it("suppresses a provider turn even without explicit abort suppression (stall/timer path)", () => {
 		const guard = installCursorSdkProcessErrorGuard();
 		try {
-			expect(processListenerCalled("uncaughtException", makeCursorSdkRawAbortDomException())).toBe(true);
+			expect(processListenerCalled("uncaughtException", makeCursorSdkRawAbortDomException())).toBe(false);
 		} finally {
 			guard.dispose();
 		}
@@ -87,12 +87,16 @@ describe("Cursor SDK raw AbortError process guard", () => {
 		}
 	});
 
-	it("does not suppress without an active provider turn", () => {
+	it("suppresses during an active session between provider turns", () => {
 		const guard = installCursorSdkSessionProcessErrorGuard();
 		try {
-			expect(processListenerCalled("uncaughtException", makeCursorSdkRawAbortDomException())).toBe(true);
+			expect(processListenerCalled("uncaughtException", makeCursorSdkRawAbortDomException())).toBe(false);
 		} finally {
 			guard.dispose();
 		}
+	});
+
+	it("does not suppress without any active session or provider turn", () => {
+		expect(processListenerCalled("uncaughtException", makeCursorSdkRawAbortDomException())).toBe(true);
 	});
 });

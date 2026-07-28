@@ -113,7 +113,9 @@ function shouldSuppressProcessError(event: string | symbol, args: readonly unkno
 		return containLocalTransportClosedPipeError();
 	}
 	if (isCursorSdkWriteIterableClosedError(error)) return activeSessions.size > 0;
-	if (isCursorSdkAbortError(error)) return hasActiveAbortSuppression();
+	// SDK stall timers and inter-turn teardown aborts never call suppressAbortErrors();
+	// any active provider turn or session is enough — stack provenance already gates SDK-only AbortErrors.
+	if (isCursorSdkAbortError(error)) return hasActiveGuard();
 	const classification = classifyCursorConnectError(error);
 	if (!classification) return false;
 	if (classification.kind === "abort") return hasActiveAbortSuppression();

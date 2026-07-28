@@ -92,6 +92,22 @@ function makeCursorSdkStallAbortWrapperConnectError(): Error & { rawMessage: str
 	return error;
 }
 
+
+function makeCursorSdkStalledRepeatedlyConnectError(): Error & { rawMessage: string; code: number } {
+	const error = new Error("[unknown] Connection stalled repeatedly") as Error & {
+		rawMessage: string;
+		code: number;
+	};
+	error.name = "ConnectError";
+	error.rawMessage = "Connection stalled repeatedly";
+	error.code = 2;
+	error.stack =
+		"ConnectError: [unknown] Connection stalled repeatedly\n" +
+		"    at fe (file:///repo/node_modules/@cursor/sdk/dist/esm/357.js:1:5832)\n" +
+		"    at file:///repo/node_modules/@connectrpc/connect-node/dist/esm/node-universal-client.js:293:63";
+	return error;
+}
+
 function makeCursorExtensionNetworkConnectError(): Error & { rawMessage: string; code: number; cause: NodeJS.ErrnoException } {
 	const error = makeCursorSdkNetworkConnectError();
 	error.stack =
@@ -344,6 +360,18 @@ describe("cursor-provider-errors", () => {
 		expect(message).toContain("Network error");
 		expect(message).toContain("pi will retry automatically");
 		expect(message).not.toContain("operation was aborted");
+	});
+
+
+	it("classifies Cursor SDK connection-stalled-repeatedly ConnectErrors as retryable network failures", () => {
+		const error = makeCursorSdkStalledRepeatedlyConnectError();
+		const classification = classifyCursorConnectError(error);
+		const message = sanitizeCursorProviderError(error, "test-key");
+
+		expect(classification).toEqual({ kind: "network", source: "cursor-sdk-stack" });
+		expect(message).toContain("Network error");
+		expect(message).toContain("pi will retry automatically");
+		expect(message).not.toContain("stalled repeatedly");
 	});
 
 	it("classifies Cursor backend unavailable ConnectErrors by code and details", () => {

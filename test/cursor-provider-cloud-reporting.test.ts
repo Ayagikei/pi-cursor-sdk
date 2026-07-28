@@ -97,7 +97,7 @@ describe("streamCursor cloud reporting", () => {
 			expect(done.message.usage.output).toBe(8);
 			expect(done.message.usage.cacheRead).toBe(9);
 			expect(done.message.usage.cacheWrite).toBe(10);
-			expect(done.message.usage.totalTokens).toBe(34);
+			expect(done.message.usage.totalTokens).toBe(15);
 			const doneContent = JSON.stringify(done.message.content);
 			expect(doneContent).not.toContain("Cursor cloud run:");
 			expect(doneContent).not.toContain(CLOUD_AGENT_ID);

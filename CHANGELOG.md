@@ -1,5 +1,12 @@
 # Changelog
 
+## [Unreleased]
+
+### Fixed
+
+- Suppress Cursor SDK `DOMException [AbortError]` while any provider turn or session guard is active (stall detector / inter-turn timers), and classify `Connection stalled repeatedly` ConnectErrors as retryable network failures (#194, #197).
+- Stop double-counting SDK cache tokens in `usage.totalTokens` and safety checks; cache fields remain a reporting-only breakdown of prompt input (#196).
+
 ## 0.1.61 - 2026-07-22
 
 ### Added

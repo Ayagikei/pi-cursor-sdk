@@ -85,11 +85,12 @@ export function estimateCursorContextTotalTokens(partial: AssistantMessage, mode
 }
 
 export function isCursorSdkUsageSafeForPiMessage(turnUsage: CursorSdkTurnUsage, model: Model<Api>): boolean {
+	// SDK inputTokens is the full prompt size; cacheRead/cacheWrite are a breakdown of it, not additive.
 	const counts = [turnUsage.inputTokens, turnUsage.outputTokens, turnUsage.cacheReadTokens, turnUsage.cacheWriteTokens];
 	return (
 		counts.every((count) => Number.isFinite(count) && count >= 0) &&
 		turnUsage.outputTokens <= model.maxTokens &&
-		turnUsage.inputTokens + turnUsage.outputTokens + turnUsage.cacheReadTokens + turnUsage.cacheWriteTokens <= model.contextWindow
+		turnUsage.inputTokens + turnUsage.outputTokens <= model.contextWindow
 	);
 }
 
@@ -98,7 +99,8 @@ export function applyCursorSdkUsage(partial: AssistantMessage, turnUsage: Cursor
 	partial.usage.output = turnUsage.outputTokens;
 	partial.usage.cacheRead = turnUsage.cacheReadTokens;
 	partial.usage.cacheWrite = turnUsage.cacheWriteTokens;
-	partial.usage.totalTokens = turnUsage.inputTokens + turnUsage.outputTokens + turnUsage.cacheReadTokens + turnUsage.cacheWriteTokens;
+	// totalTokens is context size for pi compaction; do not add cache fields (breakdown of input).
+	partial.usage.totalTokens = turnUsage.inputTokens + turnUsage.outputTokens;
 }
 
 export function applyCursorApproximateUsage(partial: AssistantMessage, model: Model<Api>, context: Context, sessionInputTokens: number): void {
