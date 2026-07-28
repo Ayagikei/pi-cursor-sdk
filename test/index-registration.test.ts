@@ -413,6 +413,21 @@ describe("extension registration and discovery", () => {
 			{ channel: CURSOR_ASK_QUESTION_BLOCKED_EVENT, data: { active: true } },
 			{ channel: CURSOR_ASK_QUESTION_BLOCKED_EVENT, data: { active: false } },
 		]);
+		expect(tool!.executionMode).toBe("sequential");
+		const listenerPayloads: unknown[] = [];
+		const unsubscribe = pi.events.on(CURSOR_ASK_QUESTION_BLOCKED_EVENT, (payload) => {
+			listenerPayloads.push(payload);
+		});
+		// Re-run once more to prove createEventBus delivery
+		await tool!.execute(
+			"question-2",
+			{ question: "Again?", options: ["Yes"], allowCustom: false },
+			undefined,
+			undefined,
+			createExtensionTestContext({ ui: { notify: vi.fn(), setStatus: vi.fn(), select: vi.fn().mockResolvedValue({ value: "Yes", labeledValue: "Yes" }), input: vi.fn() } }),
+		);
+		unsubscribe();
+		expect(listenerPayloads).toEqual([{ active: true }, { active: false }]);
 	});
 
 	it("clears pi-cursor-sdk:ask-question:blocked when the Cursor question UI is cancelled", async () => {

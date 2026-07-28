@@ -1,5 +1,5 @@
 import { vi } from "vitest";
-import type { ExtensionAPI, ProviderConfig, ToolInfo } from "@earendil-works/pi-coding-agent";
+import { createEventBus, type ExtensionAPI, type ProviderConfig, type ToolInfo } from "@earendil-works/pi-coding-agent";
 import type { CursorNativeToolDisplayExtensionApi } from "../../src/cursor-native-tool-display-registration.js";
 import type cursorExtensionFactory from "../../src/index.js";
 import { createExtensionCommandContext } from "./context-fixtures.js";
@@ -65,11 +65,13 @@ export function createPiHarness(options: PiHarnessOptions = {}): PiHarness {
 	}) as PiHarness["registerTool"];
 
 	const eventsEmitted: Array<{ channel: string; data: unknown }> = [];
+	const eventBus = createEventBus();
 	const events: ExtensionAPI["events"] = {
-		emit: vi.fn((channel: string, data: unknown) => {
+		emit: (channel: string, data: unknown) => {
 			eventsEmitted.push({ channel, data });
-		}),
-		on: vi.fn(() => () => {}),
+			eventBus.emit(channel, data);
+		},
+		on: (channel, handler) => eventBus.on(channel, handler),
 	};
 
 	return {

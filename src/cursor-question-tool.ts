@@ -218,6 +218,7 @@ export function registerCursorQuestionTool(pi: CursorQuestionToolExtensionApi): 
 		description:
 			"Ask the user a clarifying question from Cursor. Use when user preferences materially affect the next step; provide options when possible.",
 		promptSnippet: "Ask the user a clarifying question through pi UI when material choices affect Cursor's next step",
+		executionMode: "sequential",
 		parameters: CursorAskQuestionParamsSchema,
 		promptGuidelines: [
 			"Use cursor_ask_question only when running a Cursor model and user input would materially change the plan, scope, platform, or implementation path.",
