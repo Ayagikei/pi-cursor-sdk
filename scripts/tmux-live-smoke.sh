@@ -310,11 +310,29 @@ printf '\''%%s\n'\'' "$code" > %q
 
 model_listed() {
 	local file="$1"
-	"$RG_BIN" -q "composer-2\\.5" "$file"
+	if [[ -n "${RG_BIN:-}" ]]; then
+		"$RG_BIN" -q "composer-2\.5" "$file"
+	else
+		grep -q "composer-2\.5" "$file"
+	fi
+}
+
+# Capture full catalog then search. Never pipe list-models into rg -q under pipefail.
+capture_and_require_composer_model() {
+	local list_cmd=("$@")
+	local models_out="$SMOKE_DIR/prereq.models.txt"
+	local models_err="$SMOKE_DIR/prereq.stderr.txt"
+	if ! "${list_cmd[@]}" >"$models_out" 2>"$models_err"; then
+		fail "pi --list-models cursor failed"
+	fi
+	if ! model_listed "$models_out" && ! model_listed "$models_err"; then
+		fail "cursor/composer-2-5 not listed"
+	fi
 }
 
 run_self_test() {
 	local temp_dir bin_dir fake_pi fake_node fake_node_marker env_capture hostile_path captured_path node_dir name
+	RG_BIN="$(command -v rg || true)"
 	temp_dir="$(mktemp -d /tmp/pi-cursor-sdk-live-smoke-self-test.XXXXXX)"
 	trap 'rm -rf "$temp_dir"' RETURN
 	bin_dir="$temp_dir/bin"
@@ -365,13 +383,12 @@ EOF_SELFTEST_NODE
 	if grep -q '^PI_CURSOR_SETTING_SOURCES=' "$env_capture"; then
 		fail "self-test failed: default-settings env did not unset PI_CURSOR_SETTING_SOURCES"
 	fi
-	# Large-catalog prereq: capture list-models fully, then search (no pipefail SIGPIPE).
+	# Large-catalog prereq: exercise the same capture_and_require_composer_model helper.
 	fake_list_pi="$bin_dir/pi-list-models"
 	cat >"$fake_list_pi" <<'EOF_FAKE_LIST'
 #!/usr/bin/env bash
-# Emit a large catalog; exit 0. Must not be killed by a consumer closing early.
 i=0
-while [[ $i -lt 400 ]]; do
+while [[ $i -lt 20000 ]]; do
 	printf 'cursor/model-%s\n' "$i"
 	i=$((i + 1))
 done
@@ -379,15 +396,8 @@ printf 'cursor/composer-2.5\n'
 exit 0
 EOF_FAKE_LIST
 	chmod +x "$fake_list_pi"
-	catalog_out="$temp_dir/catalog.out"
-	catalog_err="$temp_dir/catalog.err"
-	if ! "$fake_list_pi" >"$catalog_out" 2>"$catalog_err"; then
-		fail "self-test failed: large catalog list-models capture exited non-zero"
-	fi
-	if ! grep -q 'composer-2\.5' "$catalog_out"; then
-		fail "self-test failed: large catalog capture missing composer-2.5"
-	fi
-	if [[ "$(wc -l <"$catalog_out" | tr -d ' ')" -lt 400 ]]; then
+	SMOKE_DIR="$temp_dir" capture_and_require_composer_model "$fake_list_pi"
+	if [[ "$(wc -l <"$temp_dir/prereq.models.txt" | tr -d ' ')" -lt 20000 ]]; then
 		fail "self-test failed: large catalog was truncated before search"
 	fi
 
@@ -438,15 +448,7 @@ log "partial live smoke: prereq, basic, default-settings, noninteractive-math, t
 "${BASE_ENV[@]}" "$PI_BIN" --version | tee "$SMOKE_DIR/prereq.pi-version.txt"
 "${BASE_ENV[@]}" "$NPM_BIN" --prefix "$ROOT" ls @cursor/sdk @earendil-works/pi-coding-agent @earendil-works/pi-ai @earendil-works/pi-tui | tee "$SMOKE_DIR/prereq.npm-ls.txt"
 
-# Capture the full catalog first. Do not pipe list-models into rg -q under pipefail:
-# large catalogs make rg exit early and SIGPIPE the pi child (status 141).
-if ! "${NONE_ENV[@]}" "${PI_BASE[@]}" --list-models cursor \
-	>"$SMOKE_DIR/prereq.models.txt" 2>"$SMOKE_DIR/prereq.stderr.txt"; then
-	fail "pi --list-models cursor failed"
-fi
-if ! model_listed "$SMOKE_DIR/prereq.models.txt" && ! model_listed "$SMOKE_DIR/prereq.stderr.txt"; then
-	fail "cursor/composer-2-5 not listed"
-fi
+capture_and_require_composer_model "${NONE_ENV[@]}" "${PI_BASE[@]}" --list-models cursor
 log "prereq PASS"
 
 run_direct basic 600 retry-empty-output "PI_CURSOR_SMOKE_OK" "PI_CURSOR_SMOKE_OK" \
