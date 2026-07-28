@@ -114,37 +114,45 @@ describe("cursor-session-agent-lineage", () => {
 		);
 	});
 
-	it("clears in-memory state on session_shutdown so a later session can record again", async () => {
+	it("reopens the same session ID with persisted lineage and only records new agents", async () => {
 		const pi = createPiHarness();
 		registerCursorSessionScope(pi);
 		registerCursorSessionAgentLineage(pi);
+		const entries: SessionEntry[] = [];
+		pi.appendEntry.mockImplementation((customType: string, data: unknown) => {
+			entries.push(lineageEntry(`lineage-${entries.length + 1}`, data));
+		});
 		await pi.runSessionStart({
 			cwd: "/tmp/project",
 			sessionManager: {
 				getSessionId: vi.fn(() => "session-1"),
 				getSessionFile: vi.fn(() => "/tmp/session.jsonl"),
-				getEntries: vi.fn(() => []),
+				getEntries: vi.fn(() => [...entries]),
 			},
 		});
 		recordCursorSessionAgentLineage("agent-1");
-		expect(pi.appendEntry).toHaveBeenCalledTimes(1);
+		expect(entries).toHaveLength(1);
 
 		await pi.runSessionShutdown();
-		pi.appendEntry.mockClear();
-
-		await pi.runSessionStart({
+		// Simulate process restart: same session file/entries, fresh in-memory registration.
+		lineageTestUtils.reset();
+		const pi2 = createPiHarness();
+		registerCursorSessionScope(pi2);
+		registerCursorSessionAgentLineage(pi2);
+		await pi2.runSessionStart({
 			cwd: "/tmp/project",
 			sessionManager: {
-				getSessionId: vi.fn(() => "session-2"),
-				getSessionFile: vi.fn(() => "/tmp/session-2.jsonl"),
-				getEntries: vi.fn(() => []),
+				getSessionId: vi.fn(() => "session-1"),
+				getSessionFile: vi.fn(() => "/tmp/session.jsonl"),
+				getEntries: vi.fn(() => [...entries]),
 			},
 		});
 		recordCursorSessionAgentLineage("agent-1");
-		expect(pi.appendEntry).toHaveBeenCalledOnce();
-		expect(pi.appendEntry).toHaveBeenCalledWith(
+		recordCursorSessionAgentLineage("agent-2");
+		expect(pi2.appendEntry).toHaveBeenCalledTimes(1);
+		expect(pi2.appendEntry).toHaveBeenCalledWith(
 			CURSOR_SESSION_AGENT_LINEAGE_ENTRY_TYPE,
-			expect.objectContaining({ agentId: "agent-1", sessionId: "session-2" }),
+			expect.objectContaining({ agentId: "agent-2", sessionId: "session-1" }),
 		);
 	});
 
@@ -168,26 +176,4 @@ describe("cursor-session-agent-lineage", () => {
 		expect(pi.appendEntry).toHaveBeenCalledTimes(2);
 	});
 
-	it("records when local resume is disabled", async () => {
-		const previous = process.env.PI_CURSOR_LOCAL_RESUME;
-		process.env.PI_CURSOR_LOCAL_RESUME = "0";
-		try {
-			const pi = createPiHarness();
-			registerCursorSessionScope(pi);
-			registerCursorSessionAgentLineage(pi);
-			await pi.runSessionStart({
-				cwd: "/tmp/project",
-				sessionManager: {
-					getSessionId: vi.fn(() => "session-1"),
-					getSessionFile: vi.fn(() => "/tmp/session.jsonl"),
-					getEntries: vi.fn(() => []),
-				},
-			});
-			recordCursorSessionAgentLineage("agent-1");
-			expect(pi.appendEntry).toHaveBeenCalledOnce();
-		} finally {
-			if (previous === undefined) delete process.env.PI_CURSOR_LOCAL_RESUME;
-			else process.env.PI_CURSOR_LOCAL_RESUME = previous;
-		}
-	});
 });
