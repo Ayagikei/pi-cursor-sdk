@@ -55,8 +55,6 @@ describe("cursor provider lineage", () => {
 		await collectEvents(streamCursor(makeModel(), makeContext(), { apiKey: "test-key" }));
 		await sessionAgentTestUtils.resetSessionCursorAgent();
 		await collectEvents(streamCursor(makeModel(), makeContext(), { apiKey: "test-key" }));
-		await pi.runTurnEnd();
-
 		expect(pi.appendEntry.mock.calls).toEqual([
 			[
 				CURSOR_SESSION_AGENT_LINEAGE_ENTRY_TYPE,
@@ -89,7 +87,6 @@ describe("cursor provider lineage", () => {
 		});
 
 		await collectEvents(streamCursor(makeModel(), makeContext(), { apiKey: "test-key", signal: controller.signal }));
-		await pi.runTurnEnd();
 
 		expect(send).not.toHaveBeenCalled();
 		expect(pi.appendEntry).not.toHaveBeenCalled();
@@ -113,7 +110,6 @@ describe("cursor provider lineage", () => {
 		}));
 
 		await collectEvents(streamCursor(makeModel(), makeContext(), { apiKey: "test-key" }));
-		await pi.runTurnEnd();
 
 		expect(pi.appendEntry).toHaveBeenCalledOnce();
 		expect(pi.appendEntry).toHaveBeenCalledWith(

@@ -25,16 +25,15 @@ export interface CursorSessionAgentLineageEntryData {
 }
 
 interface CursorSessionAgentLineageState {
+	appendEntry?: ExtensionAPI["appendEntry"];
 	sessionId?: string;
 	sessionFile?: string;
 	scopeKey?: string;
 	cwd?: string;
-	pendingAgentIds: Set<string>;
 	recordedAgentIds: Set<string>;
 }
 
 const state: CursorSessionAgentLineageState = {
-	pendingAgentIds: new Set(),
 	recordedAgentIds: new Set(),
 };
 
@@ -44,11 +43,16 @@ export function parseCursorSessionAgentLineageEntryData(value: unknown): CursorS
 		record?.version !== LINEAGE_ENTRY_VERSION ||
 		record.runtime !== "local" ||
 		!isCursorLocalAgentId(record.agentId) ||
-		typeof record.sessionId !== "string" || !record.sessionId ||
-		typeof record.scopeKey !== "string" || !record.scopeKey ||
-		typeof record.cwd !== "string" || !record.cwd ||
+		typeof record.sessionId !== "string" ||
+		!record.sessionId ||
+		typeof record.scopeKey !== "string" ||
+		!record.scopeKey ||
+		typeof record.cwd !== "string" ||
+		!record.cwd ||
 		!isIsoTimestamp(record.timestamp)
-	) return undefined;
+	) {
+		return undefined;
+	}
 	if (record.sessionFile !== undefined && (typeof record.sessionFile !== "string" || !record.sessionFile)) return undefined;
 	return {
 		version: LINEAGE_ENTRY_VERSION,
@@ -63,16 +67,36 @@ export function parseCursorSessionAgentLineageEntryData(value: unknown): CursorS
 }
 
 function readRecordedAgentIds(entries: readonly SessionEntry[], sessionId: string): Set<string> {
-	return new Set(entries.flatMap((entry) => {
-		if (entry.type !== "custom" || entry.customType !== CURSOR_SESSION_AGENT_LINEAGE_ENTRY_TYPE) return [];
-		const data = parseCursorSessionAgentLineageEntryData(entry.data);
-		return data?.sessionId === sessionId ? [data.agentId] : [];
-	}));
+	return new Set(
+		entries.flatMap((entry) => {
+			if (entry.type !== "custom" || entry.customType !== CURSOR_SESSION_AGENT_LINEAGE_ENTRY_TYPE) return [];
+			const data = parseCursorSessionAgentLineageEntryData(entry.data);
+			return data?.sessionId === sessionId ? [data.agentId] : [];
+		}),
+	);
 }
 
-export function queueCursorSessionAgentLineage(agentId: string): void {
-	if (!state.sessionId || !isCursorLocalAgentId(agentId) || state.recordedAgentIds.has(agentId)) return;
-	state.pendingAgentIds.add(agentId);
+/** Best-effort forensic lineage at the local Agent.send() boundary. Independent of resume. */
+export function recordCursorSessionAgentLineage(agentId: string): void {
+	const { appendEntry, sessionId, sessionFile, scopeKey, cwd } = state;
+	if (!appendEntry || !sessionId || !scopeKey || !cwd) return;
+	if (!isCursorLocalAgentId(agentId) || state.recordedAgentIds.has(agentId)) return;
+	const data: CursorSessionAgentLineageEntryData = {
+		version: LINEAGE_ENTRY_VERSION,
+		runtime: "local",
+		agentId,
+		sessionId,
+		...(sessionFile ? { sessionFile } : {}),
+		scopeKey,
+		cwd,
+		timestamp: new Date().toISOString(),
+	};
+	try {
+		appendEntry<CursorSessionAgentLineageEntryData>(CURSOR_SESSION_AGENT_LINEAGE_ENTRY_TYPE, data);
+		state.recordedAgentIds.add(agentId);
+	} catch {
+		// Lineage is forensic metadata; a failed stock pi append must not affect the session.
+	}
 }
 
 interface CursorSessionAgentLineageExtensionApi {
@@ -80,60 +104,34 @@ interface CursorSessionAgentLineageExtensionApi {
 	on: ExtensionAPI["on"];
 }
 
-function flushPendingCursorSessionAgentLineage(pi: Pick<CursorSessionAgentLineageExtensionApi, "appendEntry">): void {
-	const { sessionId, sessionFile, scopeKey, cwd } = state;
-	const pendingAgentIds = [...state.pendingAgentIds];
-	state.pendingAgentIds.clear();
-	if (!sessionId || !scopeKey || !cwd) return;
-	for (const agentId of pendingAgentIds) {
-		if (state.recordedAgentIds.has(agentId)) continue;
-		const data: CursorSessionAgentLineageEntryData = {
-			version: LINEAGE_ENTRY_VERSION,
-			runtime: "local",
-			agentId,
-			sessionId,
-			...(sessionFile ? { sessionFile } : {}),
-			scopeKey,
-			cwd,
-			timestamp: new Date().toISOString(),
-		};
-		try {
-			pi.appendEntry<CursorSessionAgentLineageEntryData>(CURSOR_SESSION_AGENT_LINEAGE_ENTRY_TYPE, data);
-			state.recordedAgentIds.add(agentId);
-		} catch {
-			// Lineage is forensic metadata; a failed stock pi append must not affect the session.
-		}
-	}
-}
-
 export function registerCursorSessionAgentLineage(pi: CursorSessionAgentLineageExtensionApi): void {
 	pi.on("session_start", (_event, ctx) => {
+		state.appendEntry = pi.appendEntry;
 		state.sessionId = ctx.sessionManager.getSessionId();
 		state.sessionFile = ctx.sessionManager.getSessionFile() ?? undefined;
 		state.scopeKey = getCursorSessionScopeKey();
 		state.cwd = ctx.cwd;
-		state.pendingAgentIds.clear();
 		state.recordedAgentIds = readRecordedAgentIds(ctx.sessionManager.getEntries(), state.sessionId);
 	});
-	const flushPending = () => flushPendingCursorSessionAgentLineage(pi);
-	pi.on("turn_end", flushPending);
-	// Pi calls the provider directly for compaction and tree summaries, outside an agent turn.
-	pi.on("session_compact", flushPending);
-	pi.on("session_tree", flushPending);
-	pi.on("session_shutdown", flushPending);
+	pi.on("session_shutdown", () => {
+		state.appendEntry = undefined;
+		state.sessionId = undefined;
+		state.sessionFile = undefined;
+		state.scopeKey = undefined;
+		state.cwd = undefined;
+		state.recordedAgentIds = new Set();
+	});
 }
 
 function resetStateForTests(): void {
+	state.appendEntry = undefined;
 	state.sessionId = undefined;
 	state.sessionFile = undefined;
 	state.scopeKey = undefined;
 	state.cwd = undefined;
-	state.pendingAgentIds.clear();
-	state.recordedAgentIds.clear();
+	state.recordedAgentIds = new Set();
 }
 
 export const __testUtils = {
 	reset: resetStateForTests,
-	set: (next: Partial<CursorSessionAgentLineageState>): void => { Object.assign(state, next); },
-	state,
 };

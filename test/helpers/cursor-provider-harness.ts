@@ -46,6 +46,7 @@ import {
 } from "../../src/cursor-cloud-lifecycle.js";
 import { __testUtils as cursorSessionScopeTestUtils } from "../../src/cursor-session-scope.js";
 import { __testUtils as cursorSessionResumeTestUtils } from "../../src/cursor-session-agent-resume.js";
+import { __testUtils as cursorSessionLineageTestUtils } from "../../src/cursor-session-agent-lineage.js";
 import { __testUtils as cursorStateTestUtils } from "../../src/cursor-state.js";
 import { __testUtils as cursorHttp1TestUtils } from "../../src/cursor-http1.js";
 import { CURSOR_HTTP1_ENV } from "../../src/cursor-config.js";
@@ -395,6 +396,7 @@ export async function resetCursorProviderTestState(): Promise<void> {
 	cursorProviderTestUtils.resetSessionTurnQueue();
 	cursorSessionScopeTestUtils.reset();
 	cursorSessionResumeTestUtils.reset();
+	cursorSessionLineageTestUtils.reset();
 	cursorStateTestUtils.resetCursorModeStateForTests();
 	cursorHttp1TestUtils.reset();
 	nativeToolDisplayTestUtils.reset();

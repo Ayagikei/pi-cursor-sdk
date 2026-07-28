@@ -50,10 +50,9 @@ function registerCursorProvider(pi: Pick<ExtensionAPI, "registerProvider">, mode
 export default async function (pi: CursorExtensionApi) {
 	// Session cwd must register before other session_start listeners that depend on it.
 	registerCursorSessionScope(pi);
+	registerCursorSessionAgentLineage(pi);
 	registerCursorSessionAgentLifecycle(pi);
 	registerCursorSessionAgentResume(pi);
-	// Register after resume so lineage custom entries append after resume handles at turn_end.
-	registerCursorSessionAgentLineage(pi);
 	pi.on("session_before_compact", async () => {
 		const { prepareCursorSessionForCompaction } = await import("./cursor-session-compaction-prep.js");
 		await prepareCursorSessionForCompaction();
