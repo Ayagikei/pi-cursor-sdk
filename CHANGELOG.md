@@ -5,6 +5,7 @@
 ### Added
 
 - Emit `pi-cursor-sdk:ask-question:blocked` (`{ active: boolean }`) while `cursor_ask_question` awaits pi UI input, and clear it in `finally`. Consumers (e.g. Herdr) can subscribe and map it to blocked/working; listening is out of scope for this package.
+- Record each distinct local Cursor agent whose send is initiated once per native pi session in a non-resumable `cursor-sdk-agent-lineage` custom entry, including failed/cancelled runs and when local resume is disabled.
 
 ### Fixed
 
