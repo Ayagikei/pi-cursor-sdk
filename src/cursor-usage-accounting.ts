@@ -7,6 +7,7 @@ import {
 	type CursorPromptOptions,
 } from "./context.js";
 import { asRecord, getNumber } from "./cursor-record-utils.js";
+import type { CursorRuntime } from "./cursor-config.js";
 
 export interface CursorUsagePromptOptions extends CursorPromptOptions {
 	maxInputTokens: number;
@@ -150,9 +151,11 @@ export function applyCursorUsage(
 	model: Model<Api>,
 	context: Context,
 	sessionInputTokens: number,
-	sdkUsage?: { turn?: CursorSdkTurnUsage },
+	sdkUsage?: { runtime: CursorRuntime; turn?: CursorSdkTurnUsage },
 ): void {
-	const usage = sdkUsage?.turn;
+	// Only local raw turn-ended usage has a captured full-prompt/cache-partition contract.
+	// Cloud raw usage remains display-only until its field semantics are independently observed.
+	const usage = sdkUsage?.runtime === "local" ? sdkUsage.turn : undefined;
 	if (usage && isCursorSdkUsageSafeForPiMessage(usage, model)) {
 		applyCursorSdkUsage(partial, usage);
 		return;

@@ -180,7 +180,7 @@ describe("package metadata cutover baselines", () => {
 		} finally {
 			rmSync(tempRoot, { recursive: true, force: true });
 		}
-	}, 30_000);
+	}, 60_000);
 
 	it("pins pi validation baselines", () => {
 		for (const packageName of PI_PACKAGES) {

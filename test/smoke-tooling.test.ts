@@ -193,6 +193,12 @@ try {
 		}
 	});
 
+	it("allows Windows VM tests more scheduling headroom without weakening normal npm test", () => {
+		const windowsBuild = readFileSync("scripts/platform-smoke/platform-build-windows.ps1", "utf8");
+		expect(windowsBuild).toContain("npm.cmd test -- --testTimeout=15000");
+		expect(readFileSync("package.json", "utf8")).toContain('"test": "vitest run"');
+	});
+
 	it("keeps the required HTTP/1.1 live lane explicit", () => {
 		const scenario = getScenario("cursor-http1-live");
 		expect(scenario).toMatchObject({

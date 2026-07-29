@@ -61,6 +61,7 @@ describe("cursor usage accounting", () => {
 		const partial = makeAssistantMessage([{ type: "text", text: "Hello back." }]);
 
 		applyCursorUsage(partial, model, context, 7, {
+			runtime: "local",
 			turn: { inputTokens: 25_432, outputTokens: 612, cacheReadTokens: 24_000, cacheWriteTokens: 123 },
 		});
 
@@ -91,7 +92,7 @@ describe("cursor usage accounting", () => {
 		};
 
 		expect(isCursorSdkUsageSafeForPiMessage(turn, model)).toBe(true);
-		applyCursorUsage(partial, model, context, 7, { turn });
+		applyCursorUsage(partial, model, context, 7, { runtime: "local", turn });
 		expect(partial.usage).toMatchObject({
 			input: 46_965 - 42_036 - 4_927,
 			output: 3,
@@ -132,7 +133,7 @@ describe("cursor usage accounting", () => {
 		expect(isCursorSdkUsageSafeForPiMessage({ ...overWindowUsage, inputTokens: -1 }, model)).toBe(false);
 		expect(isCursorSdkUsageSafeForPiMessage({ ...overWindowUsage, inputTokens: Number.NaN }, model)).toBe(false);
 
-		applyCursorUsage(partial, model, context, 7, { turn: overWindowUsage });
+		applyCursorUsage(partial, model, context, 7, { runtime: "local", turn: overWindowUsage });
 
 		expect(partial.usage.input).toBe(7);
 		expect(partial.usage.totalTokens).toBeLessThan(model.contextWindow);
@@ -162,7 +163,7 @@ describe("cursor usage accounting", () => {
 
 		expect(isCursorSdkUsageSafeForPiMessage(poisonedSdkUsage, model)).toBe(false);
 
-		applyCursorUsage(partial, model, context, 7, { turn: poisonedSdkUsage });
+		applyCursorUsage(partial, model, context, 7, { runtime: "local", turn: poisonedSdkUsage });
 
 		expect(partial.usage.cacheRead).toBe(0);
 		expect(partial.usage.cacheWrite).toBe(0);
@@ -224,6 +225,7 @@ describe("cursor usage accounting", () => {
 		const partial = makeAssistantMessage([{ type: "text", text: "Hello back." }]);
 
 		applyCursorUsage(partial, model, context, 7, {
+			runtime: "local",
 			turn: { inputTokens: 25, outputTokens: 6, cacheReadTokens: 24, cacheWriteTokens: 1 },
 		});
 
