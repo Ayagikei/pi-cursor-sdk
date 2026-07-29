@@ -2,10 +2,15 @@
 
 ## [Unreleased]
 
+### Added
+
+- Emit `pi-cursor-sdk:ask-question:blocked` (`{ active: boolean }`) while `cursor_ask_question` awaits pi UI input, and clear it in `finally`. Consumers (e.g. Herdr) can subscribe and map it to blocked/working; listening is out of scope for this package.
+
 ### Fixed
 
 - Suppress Cursor SDK `DOMException [AbortError]` while any provider turn or session guard is active (stall detector / inter-turn timers), and treat installed SDK `RetriableError: Connection stalled repeatedly` as a retryable network failure (#194, #197).
 - Map Cursor SDK prompt usage into pi-additive components (`input = inputTokens - cacheRead - cacheWrite`) with `totalTokens = inputTokens + outputTokens`, reject invalid cache partitions, and floor approximate occupancy at the last accepted assistant measurement (#196).
+- Omit invariant Pi system instructions from incremental local Cursor prompts; bootstrap/rebootstrap still send the current system section, and system-prompt changes still force context-divergence bootstrap (#192).
 
 ## 0.1.61 - 2026-07-22
 
