@@ -128,9 +128,8 @@ describe("package metadata cutover baselines", () => {
 			const packOutput = npmPack(["pack", "--ignore-scripts", "--pack-destination", tempRoot], process.cwd());
 			const tarballName = packOutput.trim().split(/\r?\n/).at(-1)?.trim();
 			expect(tarballName).toMatch(/^pi-cursor-sdk-.*\.tgz$/);
-			const tarballPath = join(tempRoot, tarballName!);
 
-			const listing = execFileSync("tar", ["-tzf", tarballPath], { encoding: "utf8" });
+			const listing = execFileSync("tar", ["-tzf", tarballName!], { cwd: tempRoot, encoding: "utf8" });
 			expect(listing).toContain("package/package.json");
 			const packedIdentities = packageIdentitiesFromTarListing(listing);
 			expect(packedIdentities.has("@modelcontextprotocol/sdk")).toBe(true);
@@ -138,9 +137,10 @@ describe("package metadata cutover baselines", () => {
 			expect(packedIdentities.has("@cursor/sdk")).toBe(false);
 			expect(packedIdentities.has("undici")).toBe(false);
 
-			const extractDir = join(tempRoot, "extract");
+			const extractDirName = "extract";
+			const extractDir = join(tempRoot, extractDirName);
 			mkdirSync(extractDir);
-			execFileSync("tar", ["-xzf", tarballPath, "-C", extractDir]);
+			execFileSync("tar", ["-xzf", tarballName!, "-C", extractDirName], { cwd: tempRoot });
 
 			const packedPackageJson = JSON.parse(readFileSync(join(extractDir, "package", "package.json"), "utf8")) as {
 				bundledDependencies?: string[];
