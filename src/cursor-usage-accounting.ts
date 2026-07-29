@@ -85,7 +85,8 @@ export function estimateCursorContextTotalTokens(partial: AssistantMessage, mode
 }
 
 function getCursorSdkUncachedInputTokens(turnUsage: CursorSdkTurnUsage): number {
-	// SDK inputTokens is the full prompt; cache fields are a partition of it (pi-additive components).
+	// Observed raw local turn-ended.usage: inputTokens is the full prompt; cache fields partition it.
+	// Published SDK toTokenUsage instead sums all four into totalTokens — do not use that transform here.
 	return turnUsage.inputTokens - turnUsage.cacheReadTokens - turnUsage.cacheWriteTokens;
 }
 
@@ -111,16 +112,21 @@ export function applyCursorSdkUsage(partial: AssistantMessage, turnUsage: Cursor
 	partial.usage.totalTokens = turnUsage.inputTokens + turnUsage.outputTokens;
 }
 
-function getLastAcceptedContextOccupancy(context: Context): number {
+function isCompatibleCursorAssistantMeasurement(assistant: AssistantMessage, model: Model<Api>): boolean {
+	return assistant.api === model.api && assistant.provider === model.provider && assistant.model === model.id;
+}
+
+function getLastAcceptedContextOccupancy(context: Context, model: Model<Api>): number {
 	for (let index = context.messages.length - 1; index >= 0; index -= 1) {
 		const message = context.messages[index];
 		if (message.role !== "assistant" || !("usage" in message)) continue;
 		const assistant = message as AssistantMessage;
 		if (assistant.stopReason === "aborted" || assistant.stopReason === "error" || !assistant.usage) continue;
+		if (!isCompatibleCursorAssistantMeasurement(assistant, model)) continue;
 		const { usage } = assistant;
 		const total =
 			usage.totalTokens || usage.input + usage.output + usage.cacheRead + usage.cacheWrite;
-		if (Number.isFinite(total) && total > 0) return total;
+		if (Number.isFinite(total) && total > 0 && total <= model.contextWindow) return total;
 	}
 	return 0;
 }
@@ -131,11 +137,11 @@ export function applyCursorApproximateUsage(partial: AssistantMessage, model: Mo
 	partial.usage.output = outputTokens;
 	partial.usage.cacheRead = 0;
 	partial.usage.cacheWrite = 0;
-	// Never report less occupancy than the last accepted assistant measurement in this context.
+	// Never report less occupancy than the last compatible same-model in-window assistant measurement.
 	partial.usage.totalTokens = Math.max(
 		partial.usage.input + partial.usage.output,
 		estimateCursorContextTotalTokens(partial, model, context),
-		getLastAcceptedContextOccupancy(context),
+		getLastAcceptedContextOccupancy(context, model),
 	);
 }
 
