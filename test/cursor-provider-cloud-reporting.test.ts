@@ -53,7 +53,7 @@ describe("streamCursor cloud reporting", () => {
 					update: {
 						type: "turn-ended",
 						usage: {
-							inputTokens: 7,
+							inputTokens: 26,
 							outputTokens: 8,
 							cacheReadTokens: 9,
 							cacheWriteTokens: 10,
