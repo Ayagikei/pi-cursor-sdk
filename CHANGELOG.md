@@ -9,7 +9,6 @@
 ### Changed
 
 - Require Pi 0.84.0 or later, pin the local Pi validation packages to exact 0.84.0 with TypeBox 1.3.7, move pi-ai imports from the temporary compatibility entrypoint to the supported root API, and update test harness contexts for Pi's scoped-model and native-provider registration types.
-- Audit every Pi 0.84.0 breaking surface; the existing RPC smoke consumer already uses delta-only `message_update` events, and the remaining removed APIs are not used by this extension.
 - Bound Vitest concurrency to four workers so process and filesystem contract tests remain reliable on high-core platform-smoke hosts.
 - Refresh the 34-model Cursor fallback catalog and checkpoint-derived context-window snapshot from the live `@cursor/sdk` 1.0.23 runtime.
 
