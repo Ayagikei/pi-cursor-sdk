@@ -61,16 +61,12 @@ export function createPiHarness(options: PiHarnessOptions = {}): PiHarness {
 		await command.handler(args, createExtensionCommandContext(ctxOverrides));
 	};
 
-	function recordProvider(_provider: Provider): void;
-	function recordProvider(name: string, config: ProviderConfig): void;
-	function recordProvider(providerOrName: Provider | string, config?: ProviderConfig): void {
+	const registerProvider = vi.fn((providerOrName: Provider | string, config?: ProviderConfig) => {
 		if (typeof providerOrName !== "string" || !config) {
 			throw new Error("Native providers are outside this harness's registration contract");
 		}
 		registered.push({ name: providerOrName, config });
-	}
-	const providerRegistrar: Pick<ExtensionAPI, "registerProvider"> = { registerProvider: recordProvider };
-	vi.spyOn(providerRegistrar, "registerProvider");
+	});
 	const registerTool = vi.fn<ExtensionAPI["registerTool"]>((tool) => {
 		tools.push(tool as RegisteredTool);
 	}) as PiHarness["registerTool"];
@@ -87,7 +83,7 @@ export function createPiHarness(options: PiHarnessOptions = {}): PiHarness {
 
 	return {
 		...eventApi,
-		registerProvider: providerRegistrar.registerProvider,
+		registerProvider,
 		registerFlag: vi.fn<ExtensionAPI["registerFlag"]>(),
 		registerCommand: vi.fn<ExtensionAPI["registerCommand"]>((name: string, command) => {
 			commands.set(name, command);
