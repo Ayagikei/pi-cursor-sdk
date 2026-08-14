@@ -1,6 +1,6 @@
 {
   "name": "pi-cursor-sdk",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "pi provider extension backed by @cursor/sdk local and cloud agents",
   "author": "Mitch Fultz (https://github.com/fitchmultz)",
   "license": "MIT",
@@ -22,8 +22,13 @@
   },
   "homepage": "https://github.com/fitchmultz/pi-cursor-sdk#readme",
   "files": [
+    "dist",
     "shared",
     "src",
+    "scripts/build.mjs",
+    "scripts/prepare.mjs",
+    "tsconfig.build.json",
+    "tsconfig.json",
     "scripts/refresh-cursor-model-snapshots.mjs",
     "scripts/steering-rpc-smoke.mjs",
     "scripts/tmux-live-smoke.sh",
@@ -96,6 +101,7 @@
     "scripts/lib/cursor-visual-render.d.mts",
     "scripts/lib/cursor-sdk-output-filter.mjs",
     "scripts/lib/cursor-sdk-output-filter.d.mts",
+    "scripts/lib/ensure-built.mjs",
     "README.md",
     "docs/cursor-model-ux-spec.md",
     "docs/cursor-tool-surfaces.md",
@@ -114,6 +120,8 @@
     "node": ">=22.19.0"
   },
   "scripts": {
+    "build": "node ./scripts/build.mjs",
+    "prepare": "node ./scripts/prepare.mjs",
     "typecheck": "npm run typecheck:src && npm run typecheck:tests && npm run typecheck:replay-compile",
     "typecheck:src": "tsc --noEmit",
     "typecheck:tests": "tsc -p tsconfig.test.json --noEmit",
@@ -123,9 +131,9 @@
     "test:watch": "vitest",
     "refresh:cursor-snapshots": "node scripts/refresh-cursor-model-snapshots.mjs",
     "check:cursor-snapshots": "node scripts/refresh-cursor-model-snapshots.mjs --check",
-    "smoke:live": "scripts/tmux-live-smoke.sh",
-    "smoke:visual": "node scripts/visual-tui-smoke.mjs",
-    "smoke:isolated": "scripts/isolated-cursor-smoke.sh",
+    "smoke:live": "npm run build && scripts/tmux-live-smoke.sh",
+    "smoke:visual": "npm run build && node scripts/visual-tui-smoke.mjs",
+    "smoke:isolated": "npm run build && scripts/isolated-cursor-smoke.sh",
     "smoke:cloud": "node scripts/cloud-runtime-smoke.mjs",
     "smoke:cloud:context": "node scripts/cloud-runtime-smoke.mjs --context-matrix",
     "smoke:local-resume": "node scripts/local-resume-smoke.mjs",
@@ -179,7 +187,7 @@
   },
   "pi": {
     "extensions": [
-      "./src/index.ts"
+      "./dist/index.js"
     ]
   },
   "allowScripts": {

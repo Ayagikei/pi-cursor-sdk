@@ -23,6 +23,7 @@ import {
 } from "./lib/cursor-child-process.mjs";
 import { scrubSensitiveText } from "../shared/cursor-sensitive-text.mjs";
 import { createScriptFail } from "./lib/cursor-script-fail.mjs";
+import { ensureBuilt } from "./lib/ensure-built.mjs";
 import { serializeCursorSettingSources } from "../shared/cursor-setting-sources.mjs";
 
 function isMainModule() {
@@ -301,6 +302,7 @@ async function main(argv = process.argv.slice(2), env = process.env) {
 		printHelp();
 		return;
 	}
+	ensureBuilt();
 	console.log(JSON.stringify(await runDebugProviderEvents(args, env)));
 }
 
