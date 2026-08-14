@@ -1,3 +1,5 @@
+import { readStoredCredential } from "@earendil-works/pi-coding-agent";
+
 export const CURSOR_API_KEY_ENV_VAR = "CURSOR_API_KEY";
 const CURSOR_PROVIDER_ID = "cursor";
 
@@ -21,9 +23,8 @@ export function resolveCursorApiKey(apiKey?: string): string | undefined {
 	return trimmed;
 }
 
-async function getStoredCursorApiKey(): Promise<string | undefined> {
+function getStoredCursorApiKey(): string | undefined {
 	try {
-		const { readStoredCredential } = await import("@earendil-works/pi-coding-agent");
 		const credential = readStoredCredential(CURSOR_PROVIDER_ID);
 		return resolveCursorApiKey(credential?.type === "api_key" ? credential.key : undefined);
 	} catch {
@@ -31,6 +32,6 @@ async function getStoredCursorApiKey(): Promise<string | undefined> {
 	}
 }
 
-export async function resolveCursorRuntimeApiKey(): Promise<string | undefined> {
-	return (await getStoredCursorApiKey()) ?? resolveCursorApiKey(process.env.CURSOR_API_KEY);
+export function resolveCursorRuntimeApiKey(): Promise<string | undefined> {
+	return Promise.resolve(getStoredCursorApiKey() ?? resolveCursorApiKey(process.env.CURSOR_API_KEY));
 }

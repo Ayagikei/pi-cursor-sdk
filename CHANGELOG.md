@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.3.2 - 2026-08-14
+
+### Fixed
+
+- Keep every Cursor runtime subtree that imports Pi host peers in Pi's static extension graph, preventing precompiled native `import()` from bypassing Pi's peer resolver after install-time dev-dependency pruning. This restores Cursor startup, native tool registration, provider turns, session-agent lifecycle, compaction, AGENTS.md deduplication, and stored Pi credential lookup from a pruned install.
+- Retain safe lazy boundaries for the installed Cursor SDK, SQLite store, MCP bridge implementation, and generated fallback catalog, with an import-graph regression test that rejects future native dynamic imports reaching Pi host peers.
+
 ## 0.3.1 - 2026-08-14
 
 ### Changed
