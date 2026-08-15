@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.3.3 - 2026-08-14
+
+### Changed
+
+- Hardened the precompiled import guard for legacy and future Pi package aliases plus `createRequire()` / `require.resolve()` escape hatches, while preserving the intentional Cursor SDK ripgrep resolution path.
+
 ## 0.3.2 - 2026-08-14
 
 ### Fixed
