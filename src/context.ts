@@ -84,8 +84,15 @@ function getCursorBootstrapTailSections(
 	];
 }
 
+function isHiddenCustomMessage(message: Context["messages"][number]): boolean {
+	const entry = message as { role?: string; display?: unknown };
+	return entry.role === "custom" && entry.display === false;
+}
+
 function normalizePiContextMessages(messages: Context["messages"]): Message[] {
-	return convertToLlm(messages as Parameters<typeof convertToLlm>[0]);
+	return convertToLlm(
+		messages.filter((message) => !isHiddenCustomMessage(message)) as Parameters<typeof convertToLlm>[0],
+	);
 }
 
 function isTextBlock(block: { type: string }): block is { type: "text"; text: string } {

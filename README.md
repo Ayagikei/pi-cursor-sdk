@@ -1,5 +1,15 @@
 # pi-cursor-sdk
 
+Public fork of [fitchmultz/pi-cursor-sdk](https://github.com/fitchmultz/pi-cursor-sdk) at `v0.3.6`, plus one follow-up fix:
+
+- Incremental and bootstrap Cursor prompts skip `display: false` custom messages (for example pi-permission-suite `[审批: ⚡ ACT] 完全权限`). Without this, `convertToLlm()` turns that hidden custom into the latest `user` message, so the next turn continues leftover work and ignores the real request.
+
+Install this fork:
+
+```bash
+pi install git:github.com/Ayagikei/pi-cursor-sdk@v0.3.6-hidden-custom
+```
+
 A pi provider extension that lets pi use Cursor models through the local-by-default `@cursor/sdk` agent runtime, with explicit minimal Cursor Cloud opt-in.
 
 Use this extension if you primarily use Cursor models inside pi and want Cursor's SDK agent loop preserved while pi adds native model selection, auth, thinking/context controls, session behavior, replay UI, optional local pi tool bridging, and explicit cloud runs when requested.

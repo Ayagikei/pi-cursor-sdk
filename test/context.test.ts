@@ -757,6 +757,30 @@ describe("cursor session prompt assembly", () => {
 		expect(incremental.text).toContain(getCursorToolTailGuardText());
 	});
 
+	it("keeps the latest real user request when a hidden custom approval follows it", () => {
+		const hiddenApproval = {
+			role: "custom",
+			customType: "permission-approval",
+			content: "[审批: ⚡ ACT] 完全权限",
+			display: false,
+			timestamp: 4,
+		} as unknown as Context["messages"][number];
+		const context: Context = {
+			messages: [
+				{ role: "user", content: "两边规则不完全一样", timestamp: 3 },
+				hiddenApproval,
+			],
+		};
+
+		const incremental = buildCursorIncrementalPrompt(context);
+		const bootstrap = buildCursorPrompt(context);
+
+		expect(incremental.text).toContain("User: 两边规则不完全一样");
+		expect(incremental.text).not.toContain("完全权限");
+		expect(bootstrap.text).toContain("User: 两边规则不完全一样");
+		expect(bootstrap.text).not.toContain("完全权限");
+	});
+
 	it("includes branch summaries from /tree navigation in bootstrap prompts", () => {
 		const context: Context = {
 			messages: [

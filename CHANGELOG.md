@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.3.6-hidden-custom - 2026-08-19 (Ayagikei fork)
+
+### Fixed
+
+- Skip `display: false` custom messages when building Cursor bootstrap and incremental prompts, so a hidden approval such as `[审批: ⚡ ACT] 完全权限` cannot replace the latest real user request after `convertToLlm()`.
+
 ## 0.3.6 - 2026-08-18
 
 ### Fixed
