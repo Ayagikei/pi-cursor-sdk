@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.3.7 - 2026-08-19 (Ayagikei fork)
+
+### Fixed
+
+- Incremental prompts now send every original `role: user` message after the last assistant/toolResult, instead of only the latest converted user. Queued follow-ups in the same turn are no longer dropped.
+
 ## 0.3.6-hidden-custom - 2026-08-19 (Ayagikei fork)
 
 ### Fixed

@@ -781,6 +781,24 @@ describe("cursor session prompt assembly", () => {
 		expect(bootstrap.text).not.toContain("完全权限");
 	});
 
+	it("sends every unsent original user message after the last assistant turn", () => {
+		const incremental = buildCursorIncrementalPrompt({
+			messages: [
+				{ role: "user", content: "already answered first request", timestamp: 1 },
+				{ role: "assistant", content: [{ type: "text", text: "done" }], timestamp: 2 },
+				{ role: "user", content: "queued follow-up A", timestamp: 3 },
+				{ role: "user", content: "queued follow-up B", timestamp: 4 },
+			],
+		});
+
+		expect(incremental.text).toContain("User: queued follow-up A");
+		expect(incremental.text).toContain("User: queued follow-up B");
+		expect(incremental.text).not.toContain("already answered first request");
+		expect(incremental.text.indexOf("User: queued follow-up A")).toBeLessThan(
+			incremental.text.indexOf("User: queued follow-up B"),
+		);
+	});
+
 	it("includes branch summaries from /tree navigation in bootstrap prompts", () => {
 		const context: Context = {
 			messages: [

@@ -192,6 +192,19 @@ function getLatestUserMessageIndex(messages: Message[]): number {
 	return -1;
 }
 
+function getUnsentOriginalUserMessages(messages: Context["messages"]): Message[] {
+	let lastCompletedIndex = -1;
+	for (let index = 0; index < messages.length; index += 1) {
+		const role = (messages[index] as { role?: string }).role;
+		if (role === "assistant" || role === "toolResult") {
+			lastCompletedIndex = index;
+		}
+	}
+	return messages
+		.slice(lastCompletedIndex + 1)
+		.filter((message) => (message as { role?: string }).role === "user") as Message[];
+}
+
 function getSectionCost(section: string): number {
 	return section.length + SECTION_SEPARATOR.length;
 }
@@ -384,15 +397,19 @@ export function shouldBootstrapCursorSend(
 export function buildCursorIncrementalPrompt(context: Context, options: CursorPromptOptions = {}): CursorPrompt {
 	// Incremental sends omit Pi system instructions and the full tool boundary; the session agent retains both from bootstrap.
 	const messages = normalizePiContextMessages(context.messages);
-	const latestUserMessageIndex = getLatestUserMessageIndex(messages);
-	const latestUserMessage = latestUserMessageIndex >= 0 ? messages[latestUserMessageIndex] : undefined;
-	const latestUserText = latestUserMessage ? formatMessage(latestUserMessage) : undefined;
+	const unsentUserMessages = getUnsentOriginalUserMessages(context.messages);
+	const incrementalUserMessages = unsentUserMessages.length > 0 ? unsentUserMessages : messages.filter((message) => message.role === "user").slice(-1);
+	const latestUserMessageSections = incrementalUserMessages
+		.map((message, index) => {
+			const text = formatMessage(message);
+			return text ? { index, text } : undefined;
+		})
+		.filter((section): section is { index: number; text: string } => section !== undefined);
+	const latestUserMessageIndex = latestUserMessageSections.at(-1)?.index ?? -1;
 	const sectionsBeforeMessages = [
 		"Continue the conversation using Cursor SDK capabilities only. Do not list, promise, or call pi-only tools from earlier context as if they were available.",
 	];
-	const latestUserMessageSections =
-		latestUserText && latestUserMessageIndex >= 0 ? [{ index: latestUserMessageIndex, text: latestUserText }] : [];
-	const images = extractLatestImages(messages);
+	const images = extractLatestImages(incrementalUserMessages.length > 0 ? incrementalUserMessages : messages);
 	const imageTokenReserve = images.length * (options.imageTokenEstimate ?? 0);
 	const budgetOptions =
 		options.maxInputTokens === undefined
