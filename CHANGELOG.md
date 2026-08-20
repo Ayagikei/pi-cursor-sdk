@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.3.8 - 2026-08-20 (Ayagikei fork)
+
+### Fixed
+
+- Treat Cursor SDK ConnectRPC `unauthenticated` (code 16) as a retryable provider error instead of telling users to re-run `/login`. Tighten auth-text matching so `auth.json`, `forbidden`, and HTTP `403` no longer look like an invalid API key.
+
 ## 0.3.7 - 2026-08-19 (Ayagikei fork)
 
 ### Fixed

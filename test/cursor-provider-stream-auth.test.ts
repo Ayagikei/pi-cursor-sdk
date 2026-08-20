@@ -193,7 +193,7 @@ describe("streamCursor auth and abort", () => {
 		expect(message).not.toContain("super-secret-key-12345");
 	});
 
-	it("labels unauthenticated ConnectError from run.wait as an auth failure", async () => {
+	it("labels unauthenticated ConnectError from run.wait as a retryable provider error", async () => {
 		const mockSend = vi.fn().mockResolvedValue(
 			asMockCursorRun({
 				id: "run-auth-expired",
@@ -209,9 +209,10 @@ describe("streamCursor auth and abort", () => {
 
 		const error = getErrorEvent(events);
 		expect(error.reason).toBe("error");
-		expect(error.error.errorMessage).toContain("invalid or unauthorized");
-		expect(error.error.errorMessage).toContain("/login");
-		expect(error.error.errorMessage).toContain("CURSOR_API_KEY");
+		expect(error.error.errorMessage).toContain("Provider returned error");
+		expect(error.error.errorMessage).toContain("unauthenticated");
+		expect(error.error.errorMessage).not.toContain("may be invalid or unauthorized");
+		expect(error.error.errorMessage).not.toContain("/login");
 	});
 
 	it("suppresses duplicate process-level unauthenticated ConnectError during an active provider turn", async () => {
@@ -240,7 +241,8 @@ describe("streamCursor auth and abort", () => {
 
 			const errors = getEventsOfType(events, "error");
 			expect(errors).toHaveLength(1);
-			expect(errors[0].error.errorMessage).toContain("invalid or unauthorized");
+			expect(errors[0].error.errorMessage).toContain("Provider returned error");
+			expect(errors[0].error.errorMessage).not.toContain("may be invalid or unauthorized");
 			expect(processListenerCalled).toBe(false);
 			expect(cursorSdkProcessGuardTestUtils.activeProviderTurnCount()).toBe(0);
 		} finally {

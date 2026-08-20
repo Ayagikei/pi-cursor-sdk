@@ -35,7 +35,7 @@ function isKnownGenericRunFailureText(message: string): boolean {
 }
 
 function isLikelyAuthError(message: string): boolean {
-	return /\b(unauthenticated|unauthorized|unauthorised|forbidden|invalid api key|invalid key|authentication|auth|401|403)\b/i.test(message);
+	return /\b(unauthenticated|unauthorized|unauthorised|invalid api key|invalid key|authentication|401)\b/i.test(message);
 }
 
 function getErrorStringField(record: Record<string, unknown> | undefined, key: string): string | undefined {
@@ -363,11 +363,14 @@ export function sanitizeCursorProviderError(
 		: undefined;
 	if (integrationMessage) return integrationMessage;
 	const connectClassification = classifyCursorConnectError(error);
-	if (
-		(runtimeTarget === "cloud" && getErrorName(error, record) === "AuthenticationError") ||
-		connectClassification?.kind === "unauthenticated" ||
-		isLikelyAuthError(scrubbed)
-	) {
+	if (runtimeTarget === "cloud" && getErrorName(error, record) === "AuthenticationError") {
+		return CLOUD_AUTH_CURSOR_SDK_ERROR_MESSAGE;
+	}
+	if (connectClassification?.kind === "unauthenticated") {
+		const detail = scrubbed || "unauthenticated";
+		return `${RETRYABLE_CURSOR_RUN_FAILURE_PREFIX}: ${detail}`;
+	}
+	if (isLikelyAuthError(scrubbed)) {
 		return runtimeTarget === "cloud" ? CLOUD_AUTH_CURSOR_SDK_ERROR_MESSAGE : AUTH_CURSOR_SDK_ERROR_MESSAGE;
 	}
 	if (connectClassification?.kind === "network" || isCursorSdkConnectionStalledError(error) || isLikelyNetworkTimeout(scrubbed)) return NETWORK_CURSOR_SDK_ERROR_MESSAGE;

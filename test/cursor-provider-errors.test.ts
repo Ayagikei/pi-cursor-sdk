@@ -308,16 +308,28 @@ describe("cursor-provider-errors", () => {
 		expect(message).not.toContain("/cursor-pi-tool-bridge/");
 	});
 
-	it("maps Cursor SDK unauthenticated ConnectError to actionable auth guidance", () => {
+	it("maps Cursor SDK unauthenticated ConnectError to a retryable provider error", () => {
 		const error = makeUnauthenticatedConnectError();
 		const message = sanitizeCursorProviderError(error, "secret-key");
 
 		expect(isUnauthenticatedConnectError(error)).toBe(true);
-		expect(message).toContain("invalid or unauthorized");
-		expect(message).toContain("/login");
-		expect(message).toContain("CURSOR_API_KEY");
+		expect(message).toContain("Provider returned error");
+		expect(message).toContain("unauthenticated");
+		expect(message).toContain("[unauthenticated] Error");
+		expect(message).not.toContain("may be invalid or unauthorized");
+		expect(message).not.toContain("/login");
 		expect(message).not.toContain("secret-key");
 		expect(message).not.toContain("Bearer");
+	});
+
+	it("does not treat auth.json, forbidden, or HTTP 403 text as an invalid API key", () => {
+		expect(sanitizeCursorProviderError(new Error("failed to read auth.json"), "test-key")).toBe(
+			"failed to read auth.json",
+		);
+		expect(sanitizeCursorProviderError(new Error("MCP tool forbidden"), "test-key")).toBe("MCP tool forbidden");
+		expect(sanitizeCursorProviderError(new Error("GitHub API 403 rate limit"), "test-key")).toBe(
+			"GitHub API 403 rate limit",
+		);
 	});
 
 	it("maps connect-layer network failures to actionable retry guidance", () => {
