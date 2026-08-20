@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.3.9 - 2026-08-20 (Ayagikei fork)
+
+### Fixed
+
+- Initialize `CURSOR_TREE_SITTER_VENDOR_DIR` from the installed Cursor SDK platform package before local agent creation, including nested npm dependency layouts, so shell-parser can load tree-sitter natives instead of warning and degrading to `parsingFailed`.
+
 ## 0.3.8 - 2026-08-20 (Ayagikei fork)
 
 ### Fixed

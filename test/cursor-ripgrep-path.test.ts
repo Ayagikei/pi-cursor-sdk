@@ -16,16 +16,21 @@ import { pathToFileURL } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
 import {
 	ensureCursorRipgrepPath,
+	ensureCursorTreeSitterVendorDir,
 	resolveBundledCursorRipgrepPath,
+	resolveBundledCursorTreeSitterVendorDir,
 } from "../src/cursor-ripgrep-path.js";
 
 const originalRipgrepPath = process.env.CURSOR_RIPGREP_PATH;
+const originalTreeSitterVendorDir = process.env.CURSOR_TREE_SITTER_VENDOR_DIR;
 const platformPackage = `@cursor/sdk-${process.platform}-${process.arch}`;
 const rgBinaryName = process.platform === "win32" ? "rg.exe" : "rg";
 
 afterEach(() => {
 	if (originalRipgrepPath === undefined) delete process.env.CURSOR_RIPGREP_PATH;
 	else process.env.CURSOR_RIPGREP_PATH = originalRipgrepPath;
+	if (originalTreeSitterVendorDir === undefined) delete process.env.CURSOR_TREE_SITTER_VENDOR_DIR;
+	else process.env.CURSOR_TREE_SITTER_VENDOR_DIR = originalTreeSitterVendorDir;
 });
 
 describe("Cursor ripgrep path", () => {
@@ -98,5 +103,78 @@ describe("Cursor ripgrep path", () => {
 		process.env.CURSOR_RIPGREP_PATH = "/custom/rg";
 		expect(ensureCursorRipgrepPath()).toBe("/custom/rg");
 		expect(process.env.CURSOR_RIPGREP_PATH).toBe("/custom/rg");
+	});
+});
+
+describe("Cursor tree-sitter vendor dir", () => {
+	it("resolves vendor from the installed Cursor SDK platform package", () => {
+		const vendorDir = resolveBundledCursorTreeSitterVendorDir();
+
+		if (!vendorDir) throw new Error("Expected the installed Cursor SDK platform package to include tree-sitter vendor");
+		expect(vendorDir.replaceAll("\\", "/")).toContain(platformPackage);
+		expect(() => accessSync(join(vendorDir, "tree-sitter", "index.js"), constants.R_OK)).not.toThrow();
+		expect(() => accessSync(join(vendorDir, "tree-sitter-bash", "index.js"), constants.R_OK)).not.toThrow();
+	});
+
+	it("resolves a platform package nested under @cursor/sdk/node_modules", () => {
+		const root = mkdtempSync(join(tmpdir(), "pi-cursor-tree-sitter-nested-"));
+		try {
+			const consumerDir = join(root, "consumer");
+			const consumerModule = join(consumerDir, "index.js");
+			const sdkDir = join(consumerDir, "node_modules", "@cursor", "sdk");
+			const nestedPlatformDir = join(sdkDir, "node_modules", "@cursor", `sdk-${process.platform}-${process.arch}`);
+			const nestedVendorDir = join(nestedPlatformDir, "vendor");
+
+			mkdirSync(join(nestedVendorDir, "tree-sitter"), { recursive: true });
+			mkdirSync(join(nestedVendorDir, "tree-sitter-bash"), { recursive: true });
+			writeFileSync(join(sdkDir, "package.json"), JSON.stringify({ name: "@cursor/sdk", version: "1.0.27", main: "index.js" }));
+			writeFileSync(join(sdkDir, "index.js"), "module.exports = {};\n");
+			writeFileSync(
+				join(nestedPlatformDir, "package.json"),
+				JSON.stringify({ name: platformPackage, version: "1.0.27" }),
+			);
+			writeFileSync(join(nestedVendorDir, "tree-sitter", "index.js"), "module.exports = {};\n");
+			writeFileSync(join(nestedVendorDir, "tree-sitter-bash", "index.js"), "module.exports = {};\n");
+			writeFileSync(consumerModule, "export {};\n");
+
+			const consumerRequire = createRequire(consumerModule);
+			expect(() => consumerRequire.resolve(`${platformPackage}/package.json`)).toThrow();
+			expect(consumerRequire.resolve("@cursor/sdk")).toBe(realpathSync(join(sdkDir, "index.js")));
+
+			const resolved = resolveBundledCursorTreeSitterVendorDir(pathToFileURL(consumerModule));
+			expect(resolved).toBe(realpathSync(nestedVendorDir));
+		} finally {
+			rmSync(root, { recursive: true, force: true });
+		}
+	});
+
+	it("locks installed @cursor/sdk 1.0.27 Agent.create tree-sitter contract", () => {
+		const require = createRequire(import.meta.url);
+		const sdkEntry = require.resolve("@cursor/sdk");
+		const sdkRoot = join(dirname(sdkEntry), "..", "..");
+		const sdkPackage = JSON.parse(readFileSync(join(sdkRoot, "package.json"), "utf8")) as { version: string };
+		expect(sdkPackage.version).toBe("1.0.27");
+
+		const locatorBundle = readFileSync(join(sdkRoot, "dist", "esm", "index.js"), "utf8");
+		expect(locatorBundle).toContain(
+			'CURSOR_TREE_SITTER_VENDOR_DIR;return e&&(0,s.isAbsolute)(e)?e:(0,o.nk)({relativePath:"vendor",excludedWorkspaceDirs:i.size>0?[...i]:[process.cwd()],accept:e=>(0,r.existsSync)((0,s.join)(e,"tree-sitter","index.js"))})',
+		);
+		expect(locatorBundle).toContain('t.code="CURSOR_TREE_SITTER_STUBBED"');
+
+		const runtimeBundle = readFileSync(join(sdkRoot, "dist", "esm", "357.js"), "utf8");
+		expect(runtimeBundle).toContain("CURSOR_TREE_SITTER_STUBBED");
+		expect(runtimeBundle).toContain(
+			"shell-parser: tree-sitter natives are unavailable in this artifact; shell command analysis degrades to parsingFailed",
+		);
+	});
+
+	it("configures an empty path without overriding an existing absolute value", () => {
+		process.env.CURSOR_TREE_SITTER_VENDOR_DIR = "";
+		const bundledPath = ensureCursorTreeSitterVendorDir();
+		expect(process.env.CURSOR_TREE_SITTER_VENDOR_DIR).toBe(bundledPath);
+
+		process.env.CURSOR_TREE_SITTER_VENDOR_DIR = "/custom/vendor";
+		expect(ensureCursorTreeSitterVendorDir()).toBe("/custom/vendor");
+		expect(process.env.CURSOR_TREE_SITTER_VENDOR_DIR).toBe("/custom/vendor");
 	});
 });

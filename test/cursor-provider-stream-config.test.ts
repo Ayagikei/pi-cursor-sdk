@@ -88,6 +88,33 @@ describe("streamCursor prompt and model config", () => {
 		expect(pathAtCreate!.replaceAll("\\", "/")).toContain(`@cursor/sdk-${process.platform}-${process.arch}`);
 	});
 
+	it("sets absolute CURSOR_TREE_SITTER_VENDOR_DIR before local Agent.create", async () => {
+		delete process.env.CURSOR_TREE_SITTER_VENDOR_DIR;
+		let pathAtCreate: string | undefined;
+		mockedCreate.mockImplementation(async () => {
+			pathAtCreate = process.env.CURSOR_TREE_SITTER_VENDOR_DIR;
+			return asMockSdkAgent({
+				send: vi.fn().mockResolvedValue({
+					id: "run-1",
+					agentId: "agent-1",
+					status: "finished",
+					wait: vi.fn().mockResolvedValue({ id: "run-1", status: "finished" }),
+					cancel: vi.fn(),
+					supports: () => true,
+					unsupportedReason: () => undefined,
+				}),
+			});
+		});
+
+		await collectEvents(streamCursor(makeModel("gpt-5.5@1m"), makeContext(), { apiKey: "test-key" }));
+
+		expect(mockedCreate).toHaveBeenCalledTimes(1);
+		expect(pathAtCreate).toBeTruthy();
+		expect(isAbsolute(pathAtCreate!)).toBe(true);
+		expect(pathAtCreate!.replaceAll("\\", "/")).toContain(`@cursor/sdk-${process.platform}-${process.arch}`);
+		expect(pathAtCreate!.replaceAll("\\", "/")).toContain("/vendor");
+	});
+
 	it("passes enabled local safety controls from env into Agent.create", async () => {
 		process.env.PI_CURSOR_AUTO_REVIEW = "1";
 		process.env.PI_CURSOR_SANDBOX = "true";

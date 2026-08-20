@@ -1,15 +1,16 @@
 # pi-cursor-sdk
 
-Public fork of [fitchmultz/pi-cursor-sdk](https://github.com/fitchmultz/pi-cursor-sdk) at `v0.3.6`, released as `0.3.8` with follow-up fixes:
+Public fork of [fitchmultz/pi-cursor-sdk](https://github.com/fitchmultz/pi-cursor-sdk) at `v0.3.6`, released as `0.3.9` with follow-up fixes:
 
 - Incremental and bootstrap Cursor prompts skip `display: false` custom messages (for example pi-permission-suite `[审批: ⚡ ACT] 完全权限`). Without this, `convertToLlm()` turns that hidden custom into the latest `user` message, so the next turn continues leftover work and ignores the real request.
 - Incremental prompts send every original `role: user` message after the last assistant/toolResult. The Cursor session agent already has prior turns; the delta is the unsent user text for this turn, not the full transcript and not only the last converted user.
 - Transient Cursor SDK `unauthenticated` ConnectErrors stay retryable instead of being rewritten as an invalid API key.
+- Seed `CURSOR_TREE_SITTER_VENDOR_DIR` from the installed Cursor SDK platform package so local shell-parser can load tree-sitter natives.
 
 Install this fork:
 
 ```bash
-pi install git:github.com/Ayagikei/pi-cursor-sdk@v0.3.8
+pi install git:github.com/Ayagikei/pi-cursor-sdk@v0.3.9
 ```
 
 A pi provider extension that lets pi use Cursor models through the local-by-default `@cursor/sdk` agent runtime, with explicit minimal Cursor Cloud opt-in.
