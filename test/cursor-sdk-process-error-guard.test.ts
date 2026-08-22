@@ -684,14 +684,14 @@ setTimeout(() => {
 	});
 
 	it("tracks the installed Cursor SDK local-executor stdin write contract", () => {
-		// 1.0.27 attaches a no-op error listener before local shell snapshot writes.
+		// 1.0.28 attaches a no-op error listener before local shell snapshot writes.
 		// Command-hook stdin still uses callback-style write; MCP stdio has its own listener.
 		const shellExecBundle = readFileSync("node_modules/@cursor/sdk/dist/esm/357.js", "utf8");
 		expect(shellExecBundle).toContain("writeCommandHookStdinPayload");
 		expect(shellExecBundle).toContain("stdin.write(e,(e=>{e?n(e):t(void 0)}))");
 		expect(shellExecBundle).toContain("o.stdin.write(`${t.join(\"\\n\")}\\n`),o.stdin.end()");
-		expect(shellExecBundle).toContain('function Be(e){e?.on("error",(()=>{}))}function ze(e,t){e&&(Be(e),e.write(t),e.end())}');
-		const mcpStdioBundle = readFileSync("node_modules/@cursor/sdk/dist/esm/318.js", "utf8");
+		expect(shellExecBundle).toContain('function ze(e){e?.on("error",(()=>{}))}function We(e,t){e&&(ze(e),e.write(t),e.end())}');
+		const mcpStdioBundle = readFileSync("node_modules/@cursor/sdk/dist/esm/465.js", "utf8");
 		expect(mcpStdioBundle).toContain('stdin?.on("error"');
 	});
 

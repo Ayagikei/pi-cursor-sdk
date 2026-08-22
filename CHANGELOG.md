@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.3.10 - 2026-08-22 (Ayagikei fork)
+
+### Changed
+
+- Pin the runtime to exact `@cursor/sdk@1.0.28` and recapture installed-package contracts against that pin (ripgrep/tree-sitter locators, HTTP/1.1 minified transport selection, stalled `RetriableError` constructor, local stdin no-op `error` listener, MCP stdio chunk `318.js` → `465.js`, closed-writable/`getUsage`).
+- Official Cursor SDK changelog still stops at 1.0.27. Installed 1.0.28 public `.d.ts` matches 1.0.27; the release adds `@cursor/sdk/bundled` / `@cursor/sdk/bundled/sqlite` for Bun/single-file compiles (this extension keeps the Node ESM entry), documents no-repo cloud agents (`cloud.repos` omitted or `[]`), and includes local agent-store conflict / outside-workspace read copy plus `CURSOR_DISABLE_SPARSE_PLUGIN_CLONES`, `CURSOR_RIPWALK_THREADS`, and `CURSOR_SANDBOX_POLICY_DIR` in the local-runtime chunk.
+
 ## 0.3.9 - 2026-08-20 (Ayagikei fork)
 
 ### Fixed

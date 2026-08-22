@@ -785,7 +785,7 @@ describe("cursor session prompt assembly", () => {
 		const incremental = buildCursorIncrementalPrompt({
 			messages: [
 				{ role: "user", content: "already answered first request", timestamp: 1 },
-				{ role: "assistant", content: [{ type: "text", text: "done" }], timestamp: 2 },
+				{ role: "assistant", content: [{ type: "text", text: "done" }], api: "cursor-sdk", provider: "cursor", model: "test", usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } }, stopReason: "stop", timestamp: 2 },
 				{ role: "user", content: "queued follow-up A", timestamp: 3 },
 				{ role: "user", content: "queued follow-up B", timestamp: 4 },
 			],

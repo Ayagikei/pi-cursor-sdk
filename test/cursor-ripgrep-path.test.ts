@@ -53,11 +53,11 @@ describe("Cursor ripgrep path", () => {
 			const nestedRg = join(nestedBinDir, rgBinaryName);
 
 			mkdirSync(nestedBinDir, { recursive: true });
-			writeFileSync(join(sdkDir, "package.json"), JSON.stringify({ name: "@cursor/sdk", version: "1.0.27", main: "index.js" }));
+			writeFileSync(join(sdkDir, "package.json"), JSON.stringify({ name: "@cursor/sdk", version: "1.0.28", main: "index.js" }));
 			writeFileSync(join(sdkDir, "index.js"), "module.exports = {};\n");
 			writeFileSync(
 				join(nestedPlatformDir, "package.json"),
-				JSON.stringify({ name: platformPackage, version: "1.0.27", bin: { rg: `bin/${rgBinaryName}` } }),
+				JSON.stringify({ name: platformPackage, version: "1.0.28", bin: { rg: `bin/${rgBinaryName}` } }),
 			);
 			writeFileSync(nestedRg, "#!/bin/sh\nexit 0\n");
 			chmodSync(nestedRg, 0o755);
@@ -75,12 +75,12 @@ describe("Cursor ripgrep path", () => {
 		}
 	});
 
-	it("locks installed @cursor/sdk 1.0.27 Agent.create ripgrep contract", () => {
+	it("locks installed @cursor/sdk 1.0.28 Agent.create ripgrep contract", () => {
 		const require = createRequire(import.meta.url);
 		const sdkEntry = require.resolve("@cursor/sdk");
 		const sdkRoot = join(dirname(sdkEntry), "..", "..");
 		const sdkPackage = JSON.parse(readFileSync(join(sdkRoot, "package.json"), "utf8")) as { version: string };
-		expect(sdkPackage.version).toBe("1.0.27");
+		expect(sdkPackage.version).toBe("1.0.28");
 
 		// Agent.create lives in the local-runtime chunk (esm/357.js beside cjs entry's sibling esm).
 		const bundle = readFileSync(join(sdkRoot, "dist", "esm", "357.js"), "utf8");
@@ -127,11 +127,11 @@ describe("Cursor tree-sitter vendor dir", () => {
 
 			mkdirSync(join(nestedVendorDir, "tree-sitter"), { recursive: true });
 			mkdirSync(join(nestedVendorDir, "tree-sitter-bash"), { recursive: true });
-			writeFileSync(join(sdkDir, "package.json"), JSON.stringify({ name: "@cursor/sdk", version: "1.0.27", main: "index.js" }));
+			writeFileSync(join(sdkDir, "package.json"), JSON.stringify({ name: "@cursor/sdk", version: "1.0.28", main: "index.js" }));
 			writeFileSync(join(sdkDir, "index.js"), "module.exports = {};\n");
 			writeFileSync(
 				join(nestedPlatformDir, "package.json"),
-				JSON.stringify({ name: platformPackage, version: "1.0.27" }),
+				JSON.stringify({ name: platformPackage, version: "1.0.28" }),
 			);
 			writeFileSync(join(nestedVendorDir, "tree-sitter", "index.js"), "module.exports = {};\n");
 			writeFileSync(join(nestedVendorDir, "tree-sitter-bash", "index.js"), "module.exports = {};\n");
@@ -148,12 +148,12 @@ describe("Cursor tree-sitter vendor dir", () => {
 		}
 	});
 
-	it("locks installed @cursor/sdk 1.0.27 Agent.create tree-sitter contract", () => {
+	it("locks installed @cursor/sdk 1.0.28 Agent.create tree-sitter contract", () => {
 		const require = createRequire(import.meta.url);
 		const sdkEntry = require.resolve("@cursor/sdk");
 		const sdkRoot = join(dirname(sdkEntry), "..", "..");
 		const sdkPackage = JSON.parse(readFileSync(join(sdkRoot, "package.json"), "utf8")) as { version: string };
-		expect(sdkPackage.version).toBe("1.0.27");
+		expect(sdkPackage.version).toBe("1.0.28");
 
 		const locatorBundle = readFileSync(join(sdkRoot, "dist", "esm", "index.js"), "utf8");
 		expect(locatorBundle).toContain(
