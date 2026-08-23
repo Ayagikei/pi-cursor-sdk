@@ -18,6 +18,7 @@ import {
 import { getToolName } from "./cursor-transcript-utils.js";
 import type { CursorPartialContentEmitter } from "./cursor-partial-content-emitter.js";
 import type { CursorToolDisplaySource } from "./cursor-provider-turn-tool-ledger.js";
+import { recordCursorToolActivity } from "./cursor-activity-log.js";
 
 function formatCursorToolName(toolCall: unknown): string {
 	return truncateCursorDisplayLine(getToolName(toolCall), 80) || "unknown";
@@ -71,6 +72,11 @@ export class CursorTurnDisplayRouter {
 
 		const transcript = scrubSensitiveText(formatCursorToolTranscript(toolCall, { cwd: this.cwd }), this.resolvedApiKey);
 		const display = buildCursorPiToolDisplay(toolCall, { cwd: this.cwd });
+		recordCursorToolActivity(toolCall, {
+			type: "cursor.tool.completed",
+			identity: options.identity,
+			apiKey: this.resolvedApiKey,
+		});
 		const disposition = resolveNativeReplayDisposition({
 			toolName: display.toolName,
 			useNativeToolReplay: this.useNativeToolReplay,

@@ -9,6 +9,7 @@ import {
 	isCursorToolLifecycleEligible,
 } from "./cursor-tool-lifecycle.js";
 import { getNormalizedCursorToolName } from "./cursor-tool-visibility.js";
+import { recordCursorToolActivity } from "./cursor-activity-log.js";
 import { getStartedToolCallFingerprint } from "./cursor-provider-turn-tool-ledger.js";
 
 export interface CursorToolLifecycleEmitterOptions {
@@ -128,6 +129,11 @@ export class CursorToolLifecycleEmitter {
 
 	private emit(callId: string, toolCall: unknown, progressText: string): void {
 		this.emittedLifecycleCallIds.add(callId);
+		recordCursorToolActivity(toolCall, {
+			type: "cursor.tool.started",
+			identity: callId,
+			apiKey: this.resolvedApiKey,
+		});
 		this.debugRecorder?.recordCoordinatorEvent("tool_lifecycle", {
 			callId,
 			toolName: getNormalizedCursorToolName(toolCall),

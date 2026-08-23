@@ -70,9 +70,12 @@ export interface CursorLiveRunCreateParams {
 	debugRecorder?: CursorSdkEventDebugRecorder;
 }
 
+export const DEFAULT_CURSOR_LIVE_RUN_DRAIN_SILENCE_MS = 15 * 60 * 1000;
+
 export interface CursorLiveRunCoordinatorDeps {
 	getScopeKey?: () => string;
 	getIdleDisposeMs: () => number;
+	getDrainSilenceMs?: () => number;
 	deleteNativeToolDisplay: (id: string) => void;
 	abandonSessionAgent: (scopeKey: string | undefined) => Promise<void>;
 }
@@ -98,6 +101,7 @@ export interface CursorLiveRunCoordinator {
 	getActiveForScope(scopeKey?: string): CursorLiveRun | undefined;
 	isReady(run: CursorLiveRun): boolean;
 	waitForProgress(run: CursorLiveRun, signal?: AbortSignal): Promise<void>;
+	noteActivity(run: CursorLiveRun): void;
 	withRunLease<T>(run: CursorLiveRun, signal: AbortSignal | undefined, body: () => Promise<T>): Promise<T>;
 	requestIdleDispose(run: CursorLiveRun): void;
 	release(run: CursorLiveRun): Promise<void>;
@@ -148,6 +152,7 @@ async function cancelCursorLiveSdkRun(run: CursorLiveRun): Promise<void> {
 interface CursorLiveRunPrivateState {
 	waiters: Set<ProgressWaiter>;
 	idleDisposeTimer?: ReturnType<typeof setTimeout>;
+	drainSilenceTimer?: ReturnType<typeof setTimeout>;
 	idleDisposeRequested: boolean;
 	leased: boolean;
 	leaseQueue: LeaseWaiter[];
@@ -217,6 +222,38 @@ export function createCursorLiveRunCoordinator(deps: CursorLiveRunCoordinatorDep
 		if (!state.idleDisposeTimer) return;
 		clearTimeout(state.idleDisposeTimer);
 		state.idleDisposeTimer = undefined;
+	}
+
+	function isLiveRunReady(run: CursorLiveRun): boolean {
+		return run.disposed || run.pendingEvents.length > 0 || run.done || run.cancelled || run.errorMessage !== undefined;
+	}
+
+	function resolveDrainSilenceMs(): number {
+		return deps.getDrainSilenceMs?.() ?? DEFAULT_CURSOR_LIVE_RUN_DRAIN_SILENCE_MS;
+	}
+
+	function clearDrainSilenceTimer(run: CursorLiveRun): void {
+		const state = getPrivateState(run);
+		if (state.drainSilenceTimer === undefined) return;
+		clearTimeout(state.drainSilenceTimer);
+		state.drainSilenceTimer = undefined;
+	}
+
+	function armDrainSilenceTimer(run: CursorLiveRun): void {
+		clearDrainSilenceTimer(run);
+		if (isLiveRunReady(run)) return;
+		const silenceMs = resolveDrainSilenceMs();
+		if (!Number.isFinite(silenceMs) || silenceMs <= 0) return;
+		const state = getPrivateState(run);
+		state.drainSilenceTimer = setTimeout(() => {
+			state.drainSilenceTimer = undefined;
+			if (state.waiters.size === 0) return;
+			const waited = silenceMs < 1000 ? `${silenceMs}ms` : `${Math.round(silenceMs / 1000)}s`;
+			coordinator.markError(
+				run,
+				`Cursor SDK live run produced no events for ${waited}; wait() did not settle`,
+			);
+		}, silenceMs);
 	}
 
 	function notifyProgress(run: CursorLiveRun): void {
@@ -444,7 +481,7 @@ export function createCursorLiveRunCoordinator(deps: CursorLiveRunCoordinatorDep
 		},
 
 		isReady(run): boolean {
-			return run.disposed || run.pendingEvents.length > 0 || run.done || run.cancelled || run.errorMessage !== undefined;
+			return isLiveRunReady(run);
 		},
 
 		async waitForProgress(run, signal): Promise<void> {
@@ -454,6 +491,7 @@ export function createCursorLiveRunCoordinator(deps: CursorLiveRunCoordinatorDep
 				const state = getPrivateState(run);
 				const waiter: ProgressWaiter = { resolve, reject, signal };
 				const cleanup = (): void => {
+					clearDrainSilenceTimer(run);
 					state.waiters.delete(waiter);
 					if (waiter.onAbort) signal?.removeEventListener("abort", waiter.onAbort);
 				};
@@ -471,8 +509,20 @@ export function createCursorLiveRunCoordinator(deps: CursorLiveRunCoordinatorDep
 					onAbort();
 					return;
 				}
+				if (coordinator.isReady(run)) {
+					waiter.resolve();
+					return;
+				}
+				armDrainSilenceTimer(run);
 				signal?.addEventListener("abort", onAbort, { once: true });
 			});
+		},
+
+		noteActivity(run): void {
+			if (run.disposed) return;
+			const state = getPrivateState(run);
+			if (state.waiters.size === 0) return;
+			armDrainSilenceTimer(run);
 		},
 
 		async withRunLease(run, signal, body): Promise<Awaited<ReturnType<typeof body>>> {

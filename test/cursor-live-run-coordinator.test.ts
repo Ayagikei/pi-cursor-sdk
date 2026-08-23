@@ -4,6 +4,7 @@ import { makeAssistantMessage, makeContext, makeModel } from "./helpers/pi-harne
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
 	createCursorLiveRunCoordinator,
+	DEFAULT_CURSOR_LIVE_RUN_DRAIN_SILENCE_MS,
 	hasTrailingUserMessagesAfterToolResults,
 	type CursorLiveRun,
 } from "../src/cursor-live-run-coordinator.js";
@@ -65,12 +66,13 @@ function makeBridgeRun(id: string, pendingPiToolCallIds: string[] = []): CursorP
 	};
 }
 
-function makeCoordinator(options: { scopeKey?: string; idleDisposeMs?: number } = {}) {
+function makeCoordinator(options: { scopeKey?: string; idleDisposeMs?: number; drainSilenceMs?: number } = {}) {
 	const deleteNativeToolDisplay = vi.fn();
 	const abandonSessionAgent = vi.fn().mockResolvedValue(undefined);
 	const coordinator = createCursorLiveRunCoordinator({
 		getScopeKey: () => options.scopeKey ?? "scope-1",
 		getIdleDisposeMs: () => options.idleDisposeMs ?? 10,
+		...(options.drainSilenceMs !== undefined ? { getDrainSilenceMs: () => options.drainSilenceMs! } : {}),
 		deleteNativeToolDisplay,
 		abandonSessionAgent,
 	});
@@ -310,6 +312,56 @@ describe("cursor live run coordinator", () => {
 		expect(sdkCancel).toHaveBeenCalledTimes(1);
 		expect(abandonSessionAgent).toHaveBeenCalledOnce();
 		expect(abandonSessionAgent).toHaveBeenCalledWith("scope-error");
+	});
+
+	it("marks a silent live run as error when drain wait produces no events", async () => {
+		vi.useFakeTimers();
+		const { coordinator } = makeCoordinator({ drainSilenceMs: 5 });
+		const run = startRun(coordinator);
+		const waitForProgress = coordinator.waitForProgress(run);
+
+		await vi.advanceTimersByTimeAsync(5);
+		await waitForProgress;
+
+		expect(run.errorMessage).toMatch(/produced no events for 5ms/);
+		expect(run.done).toBe(true);
+		expect(coordinator.isReady(run)).toBe(true);
+		await coordinator.release(run);
+	});
+
+	it("does not silence-timeout after a queued event wakes the drain wait", async () => {
+		vi.useFakeTimers();
+		const { coordinator } = makeCoordinator({ drainSilenceMs: 50 });
+		const run = startRun(coordinator);
+		const waitForProgress = coordinator.waitForProgress(run);
+		coordinator.queueEvent(run, { type: "text-delta", text: "hi" });
+		await waitForProgress;
+
+		await vi.advanceTimersByTimeAsync(50);
+		expect(run.errorMessage).toBeUndefined();
+		expect(run.done).toBe(false);
+		await coordinator.release(run);
+	});
+
+	it("resets drain silence on SDK activity that does not queue an event", async () => {
+		vi.useFakeTimers();
+		expect(DEFAULT_CURSOR_LIVE_RUN_DRAIN_SILENCE_MS).toBe(15 * 60 * 1000);
+		const { coordinator } = makeCoordinator({ drainSilenceMs: 20 });
+		const run = startRun(coordinator);
+		const waitForProgress = coordinator.waitForProgress(run);
+
+		await vi.advanceTimersByTimeAsync(15);
+		coordinator.noteActivity(run);
+		expect(run.errorMessage).toBeUndefined();
+		expect(coordinator.isReady(run)).toBe(false);
+
+		await vi.advanceTimersByTimeAsync(15);
+		expect(run.errorMessage).toBeUndefined();
+
+		await vi.advanceTimersByTimeAsync(5);
+		await waitForProgress;
+		expect(run.errorMessage).toMatch(/produced no events for 20ms/);
+		await coordinator.release(run);
 	});
 
 	it("suppresses process-level SDK abort errors while cancelling an abandoned live run", async () => {

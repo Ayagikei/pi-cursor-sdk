@@ -1,5 +1,17 @@
 # Changelog
 
+## Unreleased
+
+## 0.3.11 - 2026-08-23 (Ayagikei fork)
+
+### Added
+
+- Write a scrubbed `cursor-activity.jsonl` sidecar for started/completed Cursor SDK tools (`PI_CURSOR_ACTIVITY_LOG`, otherwise next to the pi session file). Rows are truncated titles/summaries only; `mutates` is true only for edit/write/delete. This is host observability, not pi `toolUse`.
+
+### Fixed
+
+- End a local live-run drain after 15 minutes with no Cursor SDK activity so a hung `run.wait()` cannot leave the child pi process in `running` forever. Queued drain events and other `InteractionUpdate` callbacks (including `shell-output-delta` after the bounded 3-chunk preview) reset that wait. This does not observe OS process liveness; a shell that emits no SDK callbacks can still hit the silence timeout.
+
 ## 0.3.10 - 2026-08-22 (Ayagikei fork)
 
 ### Changed

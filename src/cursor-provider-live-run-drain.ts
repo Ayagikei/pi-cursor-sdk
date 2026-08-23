@@ -9,6 +9,7 @@ import { scheduler } from "node:timers/promises";
 import {
 	CursorLiveRunAbortError,
 	createCursorLiveRunCoordinator,
+	DEFAULT_CURSOR_LIVE_RUN_DRAIN_SILENCE_MS,
 	hasTrailingUserMessagesAfterToolResults,
 	type CursorLiveQueuedEvent,
 	type CursorLiveRun,
@@ -51,6 +52,7 @@ export async function abandonSessionCursorAgent(scopeKey: string | undefined): P
 
 export const cursorLiveRuns = createCursorLiveRunCoordinator({
 	getIdleDisposeMs: () => cursorNativeReplayIdleDisposeMs,
+	getDrainSilenceMs: () => DEFAULT_CURSOR_LIVE_RUN_DRAIN_SILENCE_MS,
 	deleteNativeToolDisplay: deleteCursorNativeToolDisplay,
 	abandonSessionAgent: (scopeKey) => abandonSessionCursorAgent(scopeKey),
 });

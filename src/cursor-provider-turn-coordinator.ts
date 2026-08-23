@@ -147,6 +147,8 @@ export class CursorSdkTurnCoordinator {
 	}
 
 	handleDelta(update: InteractionUpdate): void {
+		// Unqueued SDK updates (extra shell-output-delta, partial-tool-call) still prove the live run is alive.
+		if (this.liveRun) cursorLiveRuns.noteActivity(this.liveRun);
 		const sdkTurnUsage = readCursorSdkTurnUsageFromUpdate(update);
 		if (sdkTurnUsage) this.sdkTurnUsage = sdkTurnUsage;
 		if (this.liveRun && (update.type === "turn-ended" || sdkTurnUsage)) {
@@ -246,6 +248,7 @@ export class CursorSdkTurnCoordinator {
 	}
 
 	handleStep(stepEnvelope: unknown): void {
+		if (this.liveRun) cursorLiveRuns.noteActivity(this.liveRun);
 		const stepType = getField(stepEnvelope, "type");
 		const step = getField(stepEnvelope, "message") ? stepEnvelope : undefined;
 		const rawStepToolCall = getField(step, "message");
