@@ -10,7 +10,7 @@ Public fork of [fitchmultz/pi-cursor-sdk](https://github.com/fitchmultz/pi-curso
 Install this fork:
 
 ```bash
-pi install git:github.com/Ayagikei/pi-cursor-sdk@v0.3.11
+pi install git:github.com/Ayagikei/pi-cursor-sdk@v0.3.12
 ```
 
 A pi provider extension that lets pi use Cursor models through the local-by-default `@cursor/sdk` agent runtime, with explicit minimal Cursor Cloud opt-in.

@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.3.12 - 2026-08-29 (Ayagikei fork)
+
 ### Fixed
 
 - Treat Cursor SDK `AuthenticationError` / local `ActionRequiredError` wrappers and wait-result `[unauthenticated]` text as retryable provider errors, keeping the scrubbed SDK detail instead of telling users to re-run `/login`. Retry those failures after 5s, 15s, and 30s before surfacing the final error; pi auto-retry can still recover if they remain retryable.
