@@ -8,6 +8,7 @@ import {
 	makeModel,
 	makeContext,
 	collectEvents,
+	collectThinkingDeltas,
 	getErrorEvent,
 	getEventsOfType,
 	hasEventType,
@@ -17,6 +18,7 @@ import {
 	asMockSdkAgent,
 	asMockCursorRun,
 } from "./helpers/cursor-provider-harness.js";
+import { setCursorUnauthenticatedRetryDelaysMsForTests } from "../src/cursor-provider-unauthenticated-retry.js";
 import { CursorPiToolBridgeRunImpl } from "../src/cursor-pi-tool-bridge-run.js";
 import { __testUtils as cursorSdkProcessGuardTestUtils } from "../src/cursor-sdk-process-error-guard.js";
 import { streamCursor } from "../src/cursor-provider.js";
@@ -213,6 +215,29 @@ describe("streamCursor auth and abort", () => {
 		expect(error.error.errorMessage).toContain("unauthenticated");
 		expect(error.error.errorMessage).not.toContain("may be invalid or unauthorized");
 		expect(error.error.errorMessage).not.toContain("/login");
+	});
+
+	it("retries unauthenticated wait failures before surfacing the real error", async () => {
+		setCursorUnauthenticatedRetryDelaysMsForTests([0, 0]);
+		const mockSend = vi.fn().mockResolvedValue(
+			asMockCursorRun({
+				id: "run-auth-retry",
+				agentId: "agent-1",
+				status: "running",
+				wait: vi.fn().mockRejectedValue(makeUnauthenticatedConnectError()),
+			}),
+		);
+		mockCreatedAgent({ send: mockSend });
+
+		const stream = streamCursor(makeModel(), makeContext(), { apiKey: "test-key" });
+		const events = await collectEvents(stream);
+		const error = getErrorEvent(events);
+		const retryTraces = collectThinkingDeltas(events);
+
+		expect(mockSend).toHaveBeenCalledTimes(3);
+		expect(retryTraces).toContain("retrying in 0s");
+		expect(error.error.errorMessage).toContain("Provider returned error");
+		expect(error.error.errorMessage).toContain("[unauthenticated] Error");
 	});
 
 	it("suppresses duplicate process-level unauthenticated ConnectError during an active provider turn", async () => {

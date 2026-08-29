@@ -322,6 +322,51 @@ describe("cursor-provider-errors", () => {
 		expect(message).not.toContain("Bearer");
 	});
 
+	it("maps SDK AuthenticationError wrapping unauthenticated ConnectError to a retryable provider error", () => {
+		const cause = makeUnauthenticatedConnectError();
+		const error = new AuthenticationError("[unauthenticated] Error", {
+			code: "unauthenticated",
+			cause,
+			isRetryable: false,
+		});
+		const message = sanitizeCursorProviderError(error, "secret-key");
+
+		expect(isUnauthenticatedConnectError(error)).toBe(true);
+		expect(classifyCursorConnectError(error)?.kind).toBe("unauthenticated");
+		expect(message).toContain("Provider returned error");
+		expect(message).toContain("[unauthenticated] Error");
+		expect(message).not.toContain("may be invalid or unauthorized");
+		expect(message).not.toContain("/login");
+	});
+
+	it("maps local ActionRequiredError login wrapping unauthenticated ConnectError to a retryable provider error", () => {
+		const cause = makeUnauthenticatedConnectError();
+		const error = new Error("[unauthenticated] Error") as Error & { action: string; cause: Error };
+		error.name = "ActionRequiredError";
+		error.action = "login";
+		error.cause = cause;
+		error.stack =
+			"ActionRequiredError: [unauthenticated] Error\n" +
+			"    at file:///repo/node_modules/@cursor/sdk/dist/esm/357.js:1:28024\n" +
+			(cause.stack ?? "");
+		const message = sanitizeCursorProviderError(error, "secret-key");
+
+		expect(isUnauthenticatedConnectError(error)).toBe(true);
+		expect(message).toContain("Provider returned error");
+		expect(message).toContain("[unauthenticated] Error");
+		expect(message).not.toContain("may be invalid or unauthorized");
+		expect(message).not.toContain("/login");
+	});
+
+	it("maps wait-result unauthenticated text to a retryable provider error", () => {
+		const message = sanitizeCursorProviderError("[unauthenticated] Error", "secret-key");
+
+		expect(message).toContain("Provider returned error");
+		expect(message).toContain("[unauthenticated] Error");
+		expect(message).not.toContain("may be invalid or unauthorized");
+		expect(message).not.toContain("/login");
+	});
+
 	it("does not treat auth.json, forbidden, or HTTP 403 text as an invalid API key", () => {
 		expect(sanitizeCursorProviderError(new Error("failed to read auth.json"), "test-key")).toBe(
 			"failed to read auth.json",

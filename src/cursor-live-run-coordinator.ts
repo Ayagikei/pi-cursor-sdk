@@ -86,6 +86,7 @@ export interface CursorLiveRunCoordinator {
 	markFinished(run: CursorLiveRun, finalText: string): void;
 	markCancelled(run: CursorLiveRun, abortMessage?: string): void;
 	markError(run: CursorLiveRun, errorMessage: string): void;
+	clearErrorForRetry(run: CursorLiveRun): void;
 	recordSdkTurnEnded(run: CursorLiveRun, usage?: CursorSdkTurnUsage): void;
 	ignoreFutureSdkTurnUsage(run: CursorLiveRun): void;
 	hasSdkTurnEnded(run: CursorLiveRun): boolean;
@@ -378,6 +379,14 @@ export function createCursorLiveRunCoordinator(deps: CursorLiveRunCoordinatorDep
 			run.done = true;
 			notifyProgress(run);
 			coordinator.requestIdleDispose(run);
+		},
+
+		clearErrorForRetry(run): void {
+			if (run.disposed) return;
+			run.errorMessage = undefined;
+			run.done = false;
+			clearIdleDisposeTimer(run);
+			getPrivateState(run).idleDisposeRequested = false;
 		},
 
 		recordSdkTurnEnded(run, usage): void {

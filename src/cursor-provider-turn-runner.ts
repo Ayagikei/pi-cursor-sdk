@@ -1,5 +1,5 @@
 import { CursorLiveRunAbortError } from "./cursor-live-run-coordinator.js";
-import { drainExistingCursorLiveRunBeforeSend } from "./cursor-provider-live-run-drain.js";
+import { cursorLiveRuns, drainExistingCursorLiveRunBeforeSend } from "./cursor-provider-live-run-drain.js";
 import { invalidateSessionAgent } from "./cursor-session-agent.js";
 import { getCursorSessionCwd, getCursorSessionScopeKey } from "./cursor-session-scope.js";
 import { installCursorSdkProcessErrorGuard } from "./cursor-sdk-process-error-guard.js";
@@ -17,6 +17,14 @@ import {
 	resolveCursorProviderTurnConfig,
 } from "./cursor-provider-turn-prepare.js";
 import { sendCursorProviderTurn } from "./cursor-provider-turn-send.js";
+import { emitDisplayOnlyTraceBlock } from "./cursor-display-only-trace.js";
+import { sanitizeCursorProviderError } from "./cursor-provider-errors.js";
+import {
+	getCursorUnauthenticatedRetryDelaysMs,
+	isTransientCursorUnauthenticatedError,
+	isTransientCursorUnauthenticatedMessage,
+	waitForCursorUnauthenticatedRetry,
+} from "./cursor-provider-unauthenticated-retry.js";
 import type {
 	CursorProviderTurnPrepareResult,
 	CursorProviderTurnRunnerParams,
@@ -106,54 +114,89 @@ export class CursorProviderTurnRunner {
 				resolvedConfig,
 			});
 
-			sendResult = await sendCursorProviderTurn({
-				params: this.params,
-				prepared,
-				sdkEventDebug: this.sdkEventDebug,
-				sdkProcessErrorGuard,
-				throwIfAborted: () => this.throwIfAborted(),
-				resolvedApiKey: this.resolvedApiKey,
-			});
-			const { send } = sendResult;
+			const retryDelays = getCursorUnauthenticatedRetryDelaysMs();
+			for (let attempt = 0; ; attempt += 1) {
+				this.throwIfAborted();
+				try {
+					sendResult = await sendCursorProviderTurn({
+						params: this.params,
+						prepared,
+						sdkEventDebug: this.sdkEventDebug,
+						sdkProcessErrorGuard,
+						throwIfAborted: () => this.throwIfAborted(),
+						resolvedApiKey: this.resolvedApiKey,
+					});
+					const { send } = sendResult;
 
-			if (prepared.runtime.kind === "live") {
-				const livePrepared = requireLocalLivePreparedTurn(prepared);
-				liveCompletion = runFinalizer.startLiveRunCompletion({
-					send,
-					prepared: livePrepared,
-					modelId: model.id,
-					discardIncompleteTools: (outcome) => discardIncompleteToolsFromPrepared(livePrepared, outcome),
-				});
-				await emitCursorLiveTurn({
-					params: this.params,
-					prepared: livePrepared,
-					sdkEventDebug: this.sdkEventDebug,
-					discardIncompleteTools: (outcome) => discardIncompleteToolsFromPrepared(livePrepared, outcome),
-				});
-				return;
+					if (prepared.runtime.kind === "live") {
+						const livePrepared = requireLocalLivePreparedTurn(prepared);
+						if (attempt > 0) cursorLiveRuns.clearErrorForRetry(livePrepared.runtime.liveRun);
+						liveCompletion = runFinalizer.startLiveRunCompletion({
+							send,
+							prepared: livePrepared,
+							modelId: model.id,
+							discardIncompleteTools: (outcome) => discardIncompleteToolsFromPrepared(livePrepared, outcome),
+						});
+						await emitCursorLiveTurn({
+							params: this.params,
+							prepared: livePrepared,
+							sdkEventDebug: this.sdkEventDebug,
+							discardIncompleteTools: (outcome) => discardIncompleteToolsFromPrepared(livePrepared, outcome),
+						});
+						return;
+					}
+
+					const outcomePromise = awaitFinalizeCursorRunOutcome({
+						run: send.run,
+						prepared,
+						cursorAgentMessageOffset: send.cursorAgentMessageOffset,
+						modelId: model.id,
+						signal: options?.signal,
+						runResultFallback: send.run.result,
+						runErrorFallback: send.run.error,
+						resolvedApiKey: this.resolvedApiKey,
+						optionsApiKey: options?.apiKey,
+						sdkEventDebug: this.sdkEventDebug,
+						contextWindowAgentId: prepared.contextWindowAgentId,
+					});
+					prepared.lifecycle.trackRunCompletion(outcomePromise);
+					const finalized = await outcomePromise;
+					if (
+						finalized.outcome.kind === "error" &&
+						isTransientCursorUnauthenticatedMessage(finalized.outcome.errorMessage) &&
+						attempt < retryDelays.length
+					) {
+						throw new Error(finalized.outcome.errorMessage);
+					}
+					await runFinalizer.applyTerminalEvent({
+						kind: "direct",
+						prepared,
+						outcome: finalized.outcome,
+						displayOnlyTraceBlock: finalized.displayOnlyTraceBlock,
+					});
+					return;
+				} catch (error) {
+					if (
+						!isTransientCursorUnauthenticatedError(error) ||
+						attempt >= retryDelays.length ||
+						options?.signal?.aborted
+					) {
+						throw error;
+					}
+					const delayMs = retryDelays[attempt] ?? 0;
+					this.sdkEventDebug?.recordError("unauthenticated_retry", error);
+					emitDisplayOnlyTraceBlock(
+						stream,
+						partial,
+						`Cursor SDK unauthenticated; retrying in ${delayMs / 1000}s (${attempt + 1}/${retryDelays.length}). ${sanitizeCursorProviderError(error, this.resolvedApiKey)}`,
+					);
+					const abortRegistration = sendResult?.abortRegistration;
+					if (abortRegistration) {
+						abortRegistration.signal.removeEventListener("abort", abortRegistration.listener);
+					}
+					await waitForCursorUnauthenticatedRetry(delayMs, options?.signal);
+				}
 			}
-
-			const outcomePromise = awaitFinalizeCursorRunOutcome({
-				run: send.run,
-				prepared,
-				cursorAgentMessageOffset: send.cursorAgentMessageOffset,
-				modelId: model.id,
-				signal: options?.signal,
-				runResultFallback: send.run.result,
-				runErrorFallback: send.run.error,
-				resolvedApiKey: this.resolvedApiKey,
-				optionsApiKey: options?.apiKey,
-				sdkEventDebug: this.sdkEventDebug,
-				contextWindowAgentId: prepared.contextWindowAgentId,
-			});
-			prepared.lifecycle.trackRunCompletion(outcomePromise);
-			const finalized = await outcomePromise;
-			await runFinalizer.applyTerminalEvent({
-				kind: "direct",
-				prepared,
-				outcome: finalized.outcome,
-				displayOnlyTraceBlock: finalized.displayOnlyTraceBlock,
-			});
 		} catch (error) {
 			await runFinalizer.applyTerminalEvent({ kind: "error", prepared, error });
 		} finally {

@@ -212,9 +212,16 @@ export type CursorConnectErrorClassification =
 	| { kind: "unauthenticated"; source: CursorConnectErrorSource }
 	| { kind: "network"; source: CursorConnectErrorSource };
 
-export function classifyCursorConnectError(error: unknown): CursorConnectErrorClassification | undefined {
+export function classifyCursorConnectError(error: unknown, depth = 0): CursorConnectErrorClassification | undefined {
+	if (depth >= 3) return undefined;
 	const record = asRecord(error);
-	if (!isConnectError(error, record)) return undefined;
+	if (!isConnectError(error, record)) {
+		const cause = record?.cause;
+		if (cause !== undefined && cause !== error) {
+			return classifyCursorConnectError(cause, depth + 1);
+		}
+		return undefined;
+	}
 
 	const message = error instanceof Error ? error.message : getErrorStringField(record, "message") ?? "";
 	const rawMessage = getErrorStringField(record, "rawMessage") ?? message;
@@ -363,10 +370,16 @@ export function sanitizeCursorProviderError(
 		: undefined;
 	if (integrationMessage) return integrationMessage;
 	const connectClassification = classifyCursorConnectError(error);
-	if (runtimeTarget === "cloud" && getErrorName(error, record) === "AuthenticationError") {
+	const unauthenticatedText = /\[unauthenticated\]/i.test(scrubbed);
+	if (
+		runtimeTarget === "cloud" &&
+		getErrorName(error, record) === "AuthenticationError" &&
+		connectClassification?.kind !== "unauthenticated" &&
+		!unauthenticatedText
+	) {
 		return CLOUD_AUTH_CURSOR_SDK_ERROR_MESSAGE;
 	}
-	if (connectClassification?.kind === "unauthenticated") {
+	if (connectClassification?.kind === "unauthenticated" || unauthenticatedText) {
 		const detail = scrubbed || "unauthenticated";
 		return `${RETRYABLE_CURSOR_RUN_FAILURE_PREFIX}: ${detail}`;
 	}

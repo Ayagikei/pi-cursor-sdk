@@ -52,6 +52,7 @@ import { __testUtils as cursorStateTestUtils } from "../../src/cursor-state.js";
 import { __testUtils as cursorHttp1TestUtils } from "../../src/cursor-http1.js";
 import { CURSOR_HTTP1_ENV } from "../../src/cursor-config.js";
 import { streamCursor, __testUtils as cursorProviderTestUtils } from "../../src/cursor-provider.js";
+import { setCursorUnauthenticatedRetryDelaysMsForTests } from "../../src/cursor-provider-unauthenticated-retry.js";
 import { registerCursorPiToolBridge, __testUtils as cursorPiToolBridgeTestUtils } from "../../src/cursor-pi-tool-bridge.js";
 import { __testUtils as modelDiscoveryTestUtils } from "../../src/model-discovery.js";
 import { __testUtils as nativeToolDisplayTestUtils } from "../../src/cursor-native-tool-display-state.js";
@@ -360,6 +361,7 @@ export const cursorModelItems: ModelListItem[] = [
 ];
 
 export async function resetCursorProviderTestState(): Promise<void> {
+	setCursorUnauthenticatedRetryDelaysMsForTests([]);
 	vi.useRealTimers();
 	installCursorSessionStoreMock();
 	cloudLifecycleTestUtils.reset();

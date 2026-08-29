@@ -26,6 +26,11 @@ import { CursorPartialContentEmitter } from "./cursor-partial-content-emitter.js
 import { emitDisplayOnlyTraceBlock } from "./cursor-display-only-trace.js";
 import { trimCurrentTurnAlreadyEmittedCursorText } from "./cursor-run-final-text.js";
 import { formatCursorSdkAbortMessage, resolveCursorSdkAbortCause } from "./cursor-provider-errors.js";
+import {
+	CursorUnauthenticatedRetryError,
+	getCursorUnauthenticatedRetryDelaysMs,
+	isTransientCursorUnauthenticatedMessage,
+} from "./cursor-provider-unauthenticated-retry.js";
 import { formatInactiveCursorReplayTrace } from "./cursor-native-replay-trace.js";
 import { partitionNativeToolsByActiveContext } from "./cursor-native-replay-routing.js";
 import type { CursorSdkEventDebugRecorder } from "./cursor-sdk-event-debug.js";
@@ -363,6 +368,12 @@ export async function drainCursorLiveRunTurn(
 				return outcome;
 			}
 			if (run.errorMessage) {
+				if (
+					getCursorUnauthenticatedRetryDelaysMs().length > 0 &&
+					isTransientCursorUnauthenticatedMessage(run.errorMessage)
+				) {
+					throw new CursorUnauthenticatedRetryError(run.errorMessage);
+				}
 				partial.stopReason = "error";
 				partial.errorMessage = run.errorMessage;
 				stream.push({ type: "error", reason: "error", error: partial });

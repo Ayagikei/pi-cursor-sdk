@@ -127,6 +127,19 @@ function makeNonCursorUnauthenticatedConnectError(): Error & { rawMessage: strin
 	return error;
 }
 
+function makeCursorSdkActionRequiredLoginError(): Error & { action: string; cause: Error } {
+	const cause = makeCursorSdkUnauthenticatedConnectError();
+	const error = new Error("[unauthenticated] Error") as Error & { action: string; cause: Error };
+	error.name = "ActionRequiredError";
+	error.action = "login";
+	error.cause = cause;
+	error.stack =
+		"ActionRequiredError: [unauthenticated] Error\n" +
+		"    at file:///repo/node_modules/@cursor/sdk/dist/esm/357.js:1:28024\n" +
+		(cause.stack ?? "");
+	return error;
+}
+
 function makeCursorSdkNetworkConnectError(): Error & { rawMessage: string; code: number; cause: NodeJS.ErrnoException } {
 	const error = new Error("[aborted] read ECONNRESET") as Error & {
 		rawMessage: string;
@@ -737,6 +750,7 @@ setTimeout(() => {
 	it.each([
 		["Cursor SDK stack", makeCursorSdkUnauthenticatedConnectError],
 		["Cursor backend details", makeCursorBackendUnauthenticatedConnectError],
+		["ActionRequiredError login wrapper", makeCursorSdkActionRequiredLoginError],
 	])("suppresses Cursor unauthenticated process errors with %s while a provider turn is active", (_name, makeError) => {
 		const suppression = installCursorSdkProcessErrorGuard();
 		let listenerCalled = false;

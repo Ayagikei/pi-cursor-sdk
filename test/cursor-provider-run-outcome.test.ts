@@ -91,6 +91,20 @@ describe("cursor-provider-run-outcome", () => {
 		expect(local.kind === "error" && local.errorMessage).toContain("Cursor SDK API key may be invalid or unauthorized");
 	});
 
+	it("maps wait-result unauthenticated text to a retryable provider error", () => {
+		const outcome = resolveCursorRunOutcome({
+			waitResult: makeWaitResult("error", "[unauthenticated] Error"),
+			textDeltas: [],
+			emittedText: "",
+			runtimeTarget: "local",
+		});
+
+		expect(outcome.kind === "error" && outcome.errorMessage).toContain("Provider returned error");
+		expect(outcome.kind === "error" && outcome.errorMessage).toContain("[unauthenticated] Error");
+		expect(outcome.kind === "error" && outcome.errorMessage).not.toContain("may be invalid or unauthorized");
+		expect(outcome.kind === "error" && outcome.errorMessage).not.toContain("/login");
+	});
+
 	it("marks successful finished runs and selects final text", () => {
 		const outcome = resolveCursorRunOutcome({
 			waitResult: makeWaitResult("finished", "final answer"),
