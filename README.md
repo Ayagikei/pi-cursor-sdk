@@ -2,8 +2,8 @@
 
 Public fork of [fitchmultz/pi-cursor-sdk](https://github.com/fitchmultz/pi-cursor-sdk) at `v0.3.6`, released as `0.3.9` with follow-up fixes:
 
-- Incremental and bootstrap Cursor prompts skip `display: false` custom messages (for example pi-permission-suite `[审批: ⚡ ACT] 完全权限`). Without this, `convertToLlm()` turns that hidden custom into the latest `user` message, so the next turn continues leftover work and ignores the real request.
-- Incremental prompts send every original `role: user` message after the last assistant/toolResult. The Cursor session agent already has prior turns; the delta is the unsent user text for this turn, not the full transcript and not only the last converted user.
+- Incremental prompts preserve every Pi message that converts to user context after the last assistant/toolResult, including queued user requests, hidden extension context from subagents, Magic Context, permission status, and included shell executions, without resetting the Cursor agent.
+- Cursor sends run Pi's `before_provider_request` hook once before retries, so compatible outbound policy plugins can inspect or replace the actual `{ text, images }` SDK payload.
 - Transient Cursor SDK `unauthenticated` ConnectErrors stay retryable instead of being rewritten as an invalid API key.
 - Seed `CURSOR_TREE_SITTER_VENDOR_DIR` from the installed Cursor SDK platform package so local shell-parser can load tree-sitter natives.
 
@@ -455,7 +455,7 @@ Only enabled local safety values are passed to `Agent.create({ local })`; false/
 
 ## Images
 
-Images from the latest user message are forwarded to Cursor. Historical images are kept out of the transcript and appear only as `[image omitted from transcript]` placeholders, so follow-up questions about an earlier image should reattach the image or include a textual description. The extension advertises `text` and `image` input for Cursor models because Cursor's SDK accepts image messages and Cursor models are expected to support them.
+Images from the current user-input turn are forwarded to Cursor, including when model-visible extension context follows the image message. Historical images from earlier completed turns are kept out of the transcript and appear only as `[image omitted from transcript]` placeholders, so follow-up questions about an earlier image should reattach the image or include a textual description. The extension advertises `text` and `image` input for Cursor models because Cursor's SDK accepts image messages and Cursor models are expected to support them.
 
 
 ## Cursor provider tool contract

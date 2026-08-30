@@ -133,12 +133,12 @@ function summarizeAnswers(answers: CursorQuestionAnswer[]): string {
 	if (answers.length === 0) return "No answer was collected.";
 	if (answers.length === 1) {
 		const [answer] = answers;
-		return answer.cancelled || answer.answer === null ? "User cancelled the question." : `User answered: ${answer.answer}`;
+		return answer.cancelled || answer.answer === null ? "User cancelled the question." : `User answered: ${answer.value ?? answer.answer}`;
 	}
 	return [
 		"User answered:",
 		...answers.map((answer) => {
-			const value = answer.cancelled || answer.answer === null ? "cancelled" : answer.answer;
+			const value = answer.cancelled || answer.answer === null ? "cancelled" : (answer.value ?? answer.answer);
 			return `- ${answer.id}: ${value}`;
 		}),
 	].join("\n");

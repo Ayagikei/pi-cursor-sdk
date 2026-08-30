@@ -305,6 +305,16 @@ describe("buildCursorPrompt", () => {
 			messages: [
 				{ role: "user", content: `old ${"x".repeat(200)}`, timestamp: 1 } satisfies UserMessage,
 				{
+					role: "assistant",
+					content: [{ type: "text", text: "Old turn complete" }],
+					api: "cursor-sdk",
+					provider: "cursor",
+					model: "test",
+					usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } },
+					stopReason: "stop",
+					timestamp: 1.5,
+				} satisfies AssistantMessage,
+				{
 					role: "user",
 					content: [
 						{ type: "text", text: "latest request" },
@@ -382,8 +392,8 @@ describe("buildCursorPrompt", () => {
 
 	it("explains that only latest user images are available as image bytes", () => {
 		const result = buildCursorPrompt({ messages: [{ role: "user", content: "test", timestamp: 1 }] });
-		expect(result.text).toContain("only latest user images are sent");
-		expect(result.text).toContain("ask to reattach prior images");
+		expect(result.text).toContain("only current-turn user images are sent");
+		expect(result.text).toContain("ask to reattach prior-turn images");
 	});
 
 	it("replaces historical images with placeholder text", () => {
@@ -397,6 +407,16 @@ describe("buildCursorPrompt", () => {
 					],
 					timestamp: 1,
 				} satisfies UserMessage,
+				{
+					role: "assistant",
+					content: [{ type: "text", text: "First turn complete" }],
+					api: "cursor-sdk",
+					provider: "cursor",
+					model: "test",
+					usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } },
+					stopReason: "stop",
+					timestamp: 1.5,
+				} satisfies AssistantMessage,
 				{
 					role: "user",
 					content: "Second",
@@ -660,6 +680,88 @@ describe("cursor session prompt assembly", () => {
 		expect(prompt.text).not.toContain("User: Hello");
 	});
 
+
+	it.each([
+		["visible custom context", { role: "custom", customType: "subagent-result", content: "Subagent completed.", display: true, timestamp: 2 }, "Subagent completed."],
+		["hidden subagent completion", { role: "custom", customType: "subagent-notify", content: "Background task completed.", display: false, timestamp: 2 }, "Background task completed."],
+		["hidden Magic Context nudge", { role: "custom", customType: "magic-context:ceiling-nudge", content: "Reduce spent context.", display: false, timestamp: 2 }, "Reduce spent context."],
+		["hidden permission status", { role: "custom", customType: "pi-permission-suite-context", content: "[审批: ⚡ ACT] 完全权限", display: false, timestamp: 2 }, "[审批: ⚡ ACT] 完全权限"],
+		["included bash execution", { role: "bashExecution", command: "git status --short", output: "clean", exitCode: 0, cancelled: false, truncated: false, timestamp: 2 }, "Ran `git status --short`"],
+	] as unknown as Array<[string, Context["messages"][number], string]>)(
+		"sends %s incrementally before the next user request",
+		(_label, externalContextMessage, expectedText) => {
+			const priorContext: Context = {
+				messages: [
+					{ role: "user", content: "Start", timestamp: 1 },
+					{ role: "assistant", content: [{ type: "text", text: "Done" }], api: "cursor-sdk", provider: "cursor", model: "test", usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } }, stopReason: "stop", timestamp: 2 },
+				],
+			};
+			const context: Context = {
+				messages: [...priorContext.messages, externalContextMessage, { role: "user", content: "Continue", timestamp: 3 }],
+			};
+			const sendState = {
+				bootstrapped: true,
+				contextFingerprint: computeCursorContextFingerprint(priorContext),
+				incrementalSendCount: 0,
+			};
+			const plan = planCursorSessionSend(sendState, context);
+			const prompt = buildCursorSessionSendPrompt(context, {}, plan);
+
+			expect(plan).toMatchObject({ mode: "incremental" });
+			expect(prompt.text).not.toContain("User: Start");
+			expect(prompt.text).toContain(expectedText);
+			expect(prompt.text.indexOf(expectedText)).toBeLessThan(prompt.text.indexOf("User: Continue"));
+		},
+	);
+
+	it.each([
+		{ role: "bashExecution", command: "secret", output: "hidden", exitCode: 0, cancelled: false, truncated: false, excludeFromContext: true, timestamp: 2 },
+	] as unknown as Context["messages"])("keeps excluded bash execution out of incremental prompts", (externalContextMessage) => {
+		const priorContext: Context = {
+			messages: [
+				{ role: "user", content: "Start", timestamp: 1 },
+				{ role: "assistant", content: [{ type: "text", text: "Done" }], api: "cursor-sdk", provider: "cursor", model: "test", usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } }, stopReason: "stop", timestamp: 2 },
+			],
+		};
+		const context: Context = {
+			messages: [...priorContext.messages, externalContextMessage, { role: "user", content: "Continue", timestamp: 3 }],
+		};
+		const sendState = {
+			bootstrapped: true,
+			contextFingerprint: computeCursorContextFingerprint(priorContext),
+			incrementalSendCount: 0,
+		};
+		const plan = planCursorSessionSend(sendState, context);
+		const prompt = buildCursorSessionSendPrompt(context, {}, plan);
+
+		expect(plan).toMatchObject({ mode: "incremental" });
+		expect(prompt.text).not.toContain("User: Start");
+		expect(prompt.text).not.toContain("hidden");
+	});
+
+	it("does not resend completed user content before external model context", () => {
+		const context: Context = {
+			messages: [
+				{ role: "user", content: [{ type: "text", text: "already submitted" }, { type: "image", data: "aW1hZ2U=", mimeType: "image/png" }], timestamp: 1 } satisfies UserMessage,
+				{
+					role: "toolResult",
+					toolCallId: "tc1",
+					toolName: "bash",
+					content: [{ type: "text", text: "done" }],
+					isError: false,
+					timestamp: 2,
+				} satisfies ToolResultMessage,
+				{ role: "custom", customType: "pi-permission-suite-context", content: "hidden", display: false, timestamp: 3 } as unknown as Context["messages"][number],
+			],
+		};
+
+		const prompt = buildCursorIncrementalPrompt(context);
+
+		expect(prompt.text).not.toContain("already submitted");
+		expect(prompt.text).toContain("hidden");
+		expect(prompt.images).toEqual([]);
+	});
+
 	it("rebootstraps after branch shrink using shouldBootstrapCursorContext", () => {
 		const context: Context = {
 			messages: [{ role: "user", content: "Hello", timestamp: 1 }],
@@ -757,10 +859,10 @@ describe("cursor session prompt assembly", () => {
 		expect(incremental.text).toContain(getCursorToolTailGuardText());
 	});
 
-	it("keeps the latest real user request when a hidden custom approval follows it", () => {
+	it("preserves hidden custom approval status as model context", () => {
 		const hiddenApproval = {
 			role: "custom",
-			customType: "permission-approval",
+			customType: "pi-permission-suite-context",
 			content: "[审批: ⚡ ACT] 完全权限",
 			display: false,
 			timestamp: 4,
@@ -776,9 +878,60 @@ describe("cursor session prompt assembly", () => {
 		const bootstrap = buildCursorPrompt(context);
 
 		expect(incremental.text).toContain("User: 两边规则不完全一样");
-		expect(incremental.text).not.toContain("完全权限");
+		expect(incremental.text).toContain("完全权限");
 		expect(bootstrap.text).toContain("User: 两边规则不完全一样");
-		expect(bootstrap.text).not.toContain("完全权限");
+		expect(bootstrap.text).toContain("完全权限");
+	});
+
+	it("keeps current-turn images and user text when hidden custom context follows", () => {
+		const hiddenNudge = {
+			role: "custom",
+			customType: "magic-context:ceiling-nudge",
+			content: "Continue without compacting.",
+			display: false,
+			timestamp: 4,
+		} as unknown as Context["messages"][number];
+		const context: Context = {
+			messages: [
+				{
+					role: "user",
+					content: [
+						{ type: "text", text: "Inspect this image" },
+						{ type: "image", data: "current-image", mimeType: "image/png" },
+					],
+					timestamp: 3,
+				} satisfies UserMessage,
+				hiddenNudge,
+			],
+		};
+
+		for (const prompt of [buildCursorPrompt(context), buildCursorIncrementalPrompt(context)]) {
+			expect(prompt.text).toContain("User: Inspect this image");
+			expect(prompt.text).toContain("Continue without compacting.");
+			expect(prompt.images).toEqual([{ data: "current-image", mimeType: "image/png" }]);
+		}
+	});
+
+	it("keeps every current-turn user context section under budget pressure", () => {
+		const hiddenCompletion = {
+			role: "custom",
+			customType: "subagent-notify",
+			content: "Background subagent completed.",
+			display: false,
+			timestamp: 4,
+		} as unknown as Context["messages"][number];
+		const context: Context = {
+			messages: [
+				{ role: "user", content: `Keep this real request ${"x".repeat(200)}`, timestamp: 3 },
+				hiddenCompletion,
+			],
+		};
+		const options = { maxInputTokens: 1, charsPerToken: 1 };
+
+		for (const prompt of [buildCursorPrompt(context, options), buildCursorIncrementalPrompt(context, options)]) {
+			expect(prompt.text).toContain("Keep this real request");
+			expect(prompt.text).toContain("Background subagent completed.");
+		}
 	});
 
 	it("sends every unsent original user message after the last assistant turn", () => {

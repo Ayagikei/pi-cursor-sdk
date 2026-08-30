@@ -1,5 +1,5 @@
 import type { Context, SimpleStreamOptions } from "@earendil-works/pi-ai";
-import type { AgentModeOption, ModelSelection, SDKAgent } from "@cursor/sdk";
+import type { AgentModeOption, ModelSelection, SDKAgent, SDKImage } from "@cursor/sdk";
 import { configureCursorSdkHttp1 } from "./cursor-http1.js";
 import { installCursorMcpToolTimeoutOverride } from "./cursor-mcp-timeout-override.js";
 import { ensureCursorRipgrepPath, ensureCursorTreeSitterVendorDir } from "./cursor-ripgrep-path.js";
@@ -13,6 +13,7 @@ import {
 } from "./cursor-session-agent.js";
 import type { CursorPiBridgeToolRequest } from "./cursor-pi-tool-bridge.js";
 import { buildCursorPrompt, estimateCursorPromptTokens } from "./context.js";
+import { asRecord } from "./cursor-record-utils.js";
 import { getCursorPromptOptions } from "./cursor-usage-accounting.js";
 import { getActiveContextToolNames } from "./cursor-context-tools.js";
 import type { CursorLiveRun } from "./cursor-live-run-coordinator.js";
@@ -56,6 +57,7 @@ import type {
 	CloudCursorProviderTurnPrepareResult,
 	CursorProviderTurnLifecycle,
 	CursorProviderTurnPrepareResult,
+	CursorProviderTurnSendPayload,
 	CursorProviderTurnRunnerParams,
 	LocalCursorProviderTurnPrepareResult,
 } from "./cursor-provider-turn-types.js";
@@ -89,6 +91,48 @@ function buildCursorCloudPromptContext(context: Context, handoff: "fresh" | "boo
 
 const CLOUD_SEND_PLAN: CursorSessionSendPlan = { mode: "bootstrap", resetAgent: false, reason: "initial" };
 
+
+function isCursorSdkImageDimension(value: unknown): boolean {
+	const dimension = asRecord(value);
+	return Boolean(
+		dimension &&
+			typeof dimension.width === "number" &&
+			Number.isFinite(dimension.width) &&
+			typeof dimension.height === "number" &&
+			Number.isFinite(dimension.height),
+	);
+}
+
+function isCursorSdkImage(value: unknown): value is SDKImage {
+	const image = asRecord(value);
+	if (!image) return false;
+	const dimensionValid = image.dimension === undefined || isCursorSdkImageDimension(image.dimension);
+	return dimensionValid && (
+		(typeof image.url === "string" && image.url.length > 0) ||
+		(typeof image.data === "string" && typeof image.mimeType === "string" && image.mimeType.length > 0)
+	);
+}
+
+function requireCursorProviderSendPayload(value: unknown): CursorProviderTurnSendPayload {
+	const payload = asRecord(value);
+	if (!payload || typeof payload.text !== "string" || (payload.images !== undefined && (
+		!Array.isArray(payload.images) || !payload.images.every(isCursorSdkImage)
+	))) {
+		throw new Error("Cursor provider onPayload must return { text: string, images?: SDKImage[] } or undefined.");
+	}
+	return {
+		text: payload.text,
+		...(payload.images === undefined ? {} : { images: payload.images }),
+	};
+}
+
+async function applyCursorProviderPayloadHook(
+	payload: CursorProviderTurnSendPayload,
+	params: CursorProviderTurnRunnerParams,
+): Promise<CursorProviderTurnSendPayload> {
+	const replacement = await params.options?.onPayload?.(payload, params.model);
+	return requireCursorProviderSendPayload(replacement === undefined ? payload : replacement);
+}
 export function resolveCursorProviderTurnConfig(cwd: string) {
 	return resolveEffectiveCursorConfig({ cwd, projectTrusted: getCursorSessionProjectTrusted() });
 }
@@ -150,10 +194,15 @@ async function prepareCursorCloudProviderTurn(
 			includePiBridgeGuidance: false,
 			includePiAskQuestionGuidance: false,
 		};
-		const prompt = buildCursorPrompt(
+		let prompt = buildCursorPrompt(
 			buildCursorCloudPromptContext(context, resolvedConfig.cloud.contextHandoff.value),
 			promptOptions,
 		);
+		const sendPayload = await applyCursorProviderPayloadHook({
+			text: prompt.text,
+			images: prompt.images.length > 0 ? prompt.images : undefined,
+		}, params);
+		prompt = { text: sendPayload.text, images: sendPayload.images ?? [] };
 		const promptInputTokens = estimateCursorPromptTokens(prompt, promptOptions);
 		const agent = await suppressCursorSdkOutput(() =>
 			Agent.create(buildCursorCloudAgentOptions({
@@ -207,10 +256,7 @@ async function prepareCursorCloudProviderTurn(
 			runtimeTarget: "cloud",
 			agent,
 			cwd,
-			payload: {
-				text: prompt.text,
-				images: prompt.images.length > 0 ? prompt.images : undefined,
-			},
+			payload: sendPayload,
 			meta: {
 				sendPlan: CLOUD_SEND_PLAN,
 				prompt,
@@ -331,10 +377,11 @@ async function prepareCursorLocalProviderTurn(
 		const bootstrap = sendPlan.mode === "bootstrap";
 		const agent = sessionAgentLease.agent;
 		const bridgeRun = sessionAgentLease.bridgeRun;
-		const sendPayload = {
+		const sendPayload = await applyCursorProviderPayloadHook({
 			text: prompt.text,
 			images: prompt.images.length > 0 ? prompt.images : undefined,
-		};
+		}, params);
+		prompt = { text: sendPayload.text, images: sendPayload.images ?? [] };
 		const sessionBridgeRun = bridgeRun;
 		const promptInputTokens = estimateCursorPromptTokens(prompt, promptOptions);
 		const useNativeToolReplay = isCursorNativeToolDisplayRuntimeEnabled();

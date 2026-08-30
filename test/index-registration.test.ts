@@ -428,7 +428,7 @@ describe("extension registration and discovery", () => {
 
 		expect(select).toHaveBeenCalledWith("What kind of calculator should Cursor plan?", ["Web app", "CLI"]);
 		expect(input).not.toHaveBeenCalled();
-		expect(result.content).toEqual([{ type: "text", text: "User answered: Web app" }]);
+		expect(result.content).toEqual([{ type: "text", text: "User answered: web" }]);
 		expect(result.details).toMatchObject({
 			uiAvailable: true,
 			cancelled: false,
@@ -460,6 +460,37 @@ describe("extension registration and discovery", () => {
 			uiAvailable: true,
 			cancelled: false,
 			answers: [{ id: "question_1", answer: "Yes", value: "Yes", cancelled: false }],
+		});
+	});
+
+	it("returns stable option values for multiple Cursor questions", async () => {
+		process.env.PI_CURSOR_NATIVE_TOOL_DISPLAY = "0";
+		mockedDiscover.mockResolvedValueOnce([]);
+		const pi = createExtensionPi();
+		await extensionFactory(pi);
+		await pi.runSessionStart();
+
+		const select = vi.fn().mockResolvedValueOnce("Web app").mockResolvedValueOnce("TypeScript");
+		const tool = pi._tools.find((candidate) => candidate.name === CURSOR_ASK_QUESTION_TOOL_NAME);
+		const result = await tool!.execute(
+			"question-values",
+			{
+				questions: [
+					{ id: "kind", question: "What kind?", options: [{ label: "Web app", value: "web" }], allowCustom: false },
+					{ id: "language", question: "Which language?", options: [{ label: "TypeScript", value: "ts" }], allowCustom: false },
+				],
+			},
+			undefined,
+			undefined,
+			createExtensionTestContext({ ui: { notify: vi.fn(), setStatus: vi.fn(), select, input: vi.fn() } }),
+		);
+
+		expect(result.content).toEqual([{ type: "text", text: "User answered:\n- kind: web\n- language: ts" }]);
+		expect(result.details).toMatchObject({
+			answers: [
+				{ id: "kind", answer: "Web app", value: "web" },
+				{ id: "language", answer: "TypeScript", value: "ts" },
+			],
 		});
 	});
 

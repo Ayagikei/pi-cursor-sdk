@@ -67,7 +67,7 @@ function getCursorToolBoundaryText(
 		"Do not claim pi-side or WebSearch/WebFetch tools unless Cursor ran an equivalent tool.",
 		includePiAskQuestionGuidance ? "Use pi__cursor_ask_question for material choices if exposed." : undefined,
 		getCursorPlanModeToolGuidanceText(options.agentMode, { includePiBridgeGuidance }),
-		"Images: only latest user images are sent; ask to reattach prior images.",
+		"Images: only current-turn user images are sent; ask to reattach prior-turn images.",
 	].filter((line): line is string => line !== undefined);
 	if (options.hasToolManifest) {
 		lines.push("See callable surfaces below.");
@@ -83,16 +83,8 @@ function getCursorBootstrapTailSections(
 		getCursorToolTailGuardText({ ...options, includePlanModeGuidance: false }),
 	];
 }
-
-function isHiddenCustomMessage(message: Context["messages"][number]): boolean {
-	const entry = message as { role?: string; display?: unknown };
-	return entry.role === "custom" && entry.display === false;
-}
-
 function normalizePiContextMessages(messages: Context["messages"]): Message[] {
-	return convertToLlm(
-		messages.filter((message) => !isHiddenCustomMessage(message)) as Parameters<typeof convertToLlm>[0],
-	);
+	return convertToLlm(messages as Parameters<typeof convertToLlm>[0]);
 }
 
 function isTextBlock(block: { type: string }): block is { type: "text"; text: string } {
@@ -108,19 +100,18 @@ function isToolCallBlock(block: { type: string }): block is ToolCall {
 }
 
 function extractLatestImages(messages: Message[]): SDKImage[] {
-	// Find the last user message and extract images only from it
-	for (let i = messages.length - 1; i >= 0; i--) {
-		const msg = messages[i];
-		if (msg.role !== "user") continue;
-		if (typeof msg.content === "string") return [];
+	// Pi converts model-visible custom entries to adjacent user messages. Search the
+	// current user-message run so trailing extension context cannot hide user images.
+	for (let index = messages.length - 1; index >= 0; index -= 1) {
+		const message = messages[index];
+		if (message.role !== "user") break;
+		if (typeof message.content === "string") continue;
 
-		const images: SDKImage[] = [];
-		for (const block of msg.content) {
-			if (isImageBlock(block) && block.data && block.mimeType) {
-				images.push({ data: block.data, mimeType: block.mimeType });
-			}
-		}
-		return images;
+		const images = message.content
+			.filter(isImageBlock)
+			.filter((block) => block.data && block.mimeType)
+			.map((block) => ({ data: block.data, mimeType: block.mimeType }));
+		if (images.length > 0) return images;
 	}
 	return [];
 }
@@ -185,14 +176,16 @@ function formatMessage(msg: Message): string | undefined {
 	}
 }
 
-function getLatestUserMessageIndex(messages: Message[]): number {
+function getCurrentTurnUserMessageIndexes(messages: Message[]): Set<number> {
+	const indexes = new Set<number>();
 	for (let index = messages.length - 1; index >= 0; index -= 1) {
-		if (messages[index].role === "user") return index;
+		if (messages[index].role !== "user") break;
+		indexes.add(index);
 	}
-	return -1;
+	return indexes;
 }
 
-function getUnsentOriginalUserMessages(messages: Context["messages"]): Message[] {
+function getUnsentContextMessages(messages: Context["messages"]): Message[] {
 	let lastCompletedIndex = -1;
 	for (let index = 0; index < messages.length; index += 1) {
 		const role = (messages[index] as { role?: string }).role;
@@ -200,9 +193,7 @@ function getUnsentOriginalUserMessages(messages: Context["messages"]): Message[]
 			lastCompletedIndex = index;
 		}
 	}
-	return messages
-		.slice(lastCompletedIndex + 1)
-		.filter((message) => (message as { role?: string }).role === "user") as Message[];
+	return normalizePiContextMessages(messages.slice(lastCompletedIndex + 1));
 }
 
 function getSectionCost(section: string): number {
@@ -213,7 +204,7 @@ function applyPromptBudget(
 	sectionsBeforeMessages: string[],
 	messageSections: Array<{ index: number; text: string }>,
 	sectionsAfterMessages: string[],
-	latestUserMessageIndex: number,
+	requiredMessageIndexes: ReadonlySet<number>,
 	options: CursorPromptOptions,
 ): string[] {
 	const maxInputTokens = options.maxInputTokens;
@@ -223,7 +214,7 @@ function applyPromptBudget(
 
 	const charsPerToken = options.charsPerToken ?? CURSOR_APPROX_CHARS_PER_TOKEN;
 	const maxChars = Math.max(1, Math.floor(maxInputTokens * charsPerToken));
-	const requiredMessageSections = messageSections.filter((section) => section.index === latestUserMessageIndex);
+	const requiredMessageSections = messageSections.filter((section) => requiredMessageIndexes.has(section.index));
 	const requiredCost = [...sectionsBeforeMessages, ...requiredMessageSections.map((section) => section.text), ...sectionsAfterMessages].reduce(
 		(total, section) => total + getSectionCost(section),
 		0,
@@ -396,20 +387,18 @@ export function shouldBootstrapCursorSend(
 
 export function buildCursorIncrementalPrompt(context: Context, options: CursorPromptOptions = {}): CursorPrompt {
 	// Incremental sends omit Pi system instructions and the full tool boundary; the session agent retains both from bootstrap.
-	const messages = normalizePiContextMessages(context.messages);
-	const unsentUserMessages = getUnsentOriginalUserMessages(context.messages);
-	const incrementalUserMessages = unsentUserMessages.length > 0 ? unsentUserMessages : messages.filter((message) => message.role === "user").slice(-1);
+	const incrementalUserMessages = getUnsentContextMessages(context.messages);
 	const latestUserMessageSections = incrementalUserMessages
 		.map((message, index) => {
 			const text = formatMessage(message);
 			return text ? { index, text } : undefined;
 		})
 		.filter((section): section is { index: number; text: string } => section !== undefined);
-	const latestUserMessageIndex = latestUserMessageSections.at(-1)?.index ?? -1;
+	const requiredMessageIndexes = getCurrentTurnUserMessageIndexes(incrementalUserMessages);
 	const sectionsBeforeMessages = [
 		"Continue the conversation using Cursor SDK capabilities only. Do not list, promise, or call pi-only tools from earlier context as if they were available.",
 	];
-	const images = extractLatestImages(incrementalUserMessages.length > 0 ? incrementalUserMessages : messages);
+	const images = extractLatestImages(incrementalUserMessages);
 	const imageTokenReserve = images.length * (options.imageTokenEstimate ?? 0);
 	const budgetOptions =
 		options.maxInputTokens === undefined
@@ -419,7 +408,7 @@ export function buildCursorIncrementalPrompt(context: Context, options: CursorPr
 		sectionsBeforeMessages,
 		latestUserMessageSections,
 		[getCursorToolTailGuardText(options)],
-		latestUserMessageIndex,
+		requiredMessageIndexes,
 		budgetOptions,
 	);
 	return { text: parts.join(SECTION_SEPARATOR), images };
@@ -458,7 +447,7 @@ export function buildCursorPrompt(context: Context, options: CursorPromptOptions
 		sectionsBeforeMessages,
 		messageSections,
 		sectionsAfterMessages,
-		getLatestUserMessageIndex(messages),
+		getCurrentTurnUserMessageIndexes(messages),
 		budgetOptions,
 	);
 	const text = parts.join(SECTION_SEPARATOR);

@@ -441,6 +441,7 @@ describe("streamCursor prompt and model config", () => {
 			systemPrompt: "Keep this system prompt.",
 			messages: [
 				{ role: "user", content: `old request ${"x".repeat(1200)}`, timestamp: 1 },
+				makeAssistantMessage("old turn complete", 1.5),
 				{ role: "user", content: "latest request must remain", timestamp: 2 },
 			],
 		};
@@ -474,6 +475,7 @@ describe("streamCursor prompt and model config", () => {
 			systemPrompt: "Keep image prompt compact.",
 			messages: [
 				{ role: "user", content: `old request ${"x".repeat(1200)}`, timestamp: 1 },
+				makeAssistantMessage("old turn complete", 1.5),
 				{
 					role: "user",
 					content: [
