@@ -38,6 +38,7 @@ function makeUnauthenticatedConnectError(): Error & { rawMessage: string; code: 
 	return error;
 }
 
+
 describe("streamCursor auth and abort", () => {
 	beforeEach(resetCursorProviderTestState);
 
@@ -174,6 +175,98 @@ describe("streamCursor auth and abort", () => {
 		expect(message).toContain("/login");
 		expect(message).toContain("CURSOR_API_KEY");
 		expect(message).not.toContain("super-secret-key-12345");
+	});
+
+	it("retries a soft-classified SDK authentication send failure once", async () => {
+		setCursorUnauthenticatedRetryDelaysMsForTests([0, 0, 0]);
+		const mockSend = vi
+			.fn()
+			.mockRejectedValueOnce(new AuthenticationError("Unauthorized", { code: "UNAUTHORIZED", isRetryable: false }))
+			.mockResolvedValue({
+				id: "run-auth-recovered",
+				agentId: "agent-1",
+				status: "finished",
+				wait: vi.fn().mockResolvedValue({ id: "run-auth-recovered", status: "finished" }),
+				cancel: vi.fn(),
+				supports: () => true,
+				unsupportedReason: () => undefined,
+			});
+		mockCreatedAgent({ send: mockSend });
+
+		const events = await collectEvents(streamCursor(makeModel(), makeContext(), { apiKey: "test-key" }));
+
+		expect(mockSend).toHaveBeenCalledTimes(2);
+		expect(collectThinkingDeltas(events)).toContain("retrying in 0s (1/1)");
+		expect(getEventsOfType(events, "error")).toHaveLength(0);
+	});
+
+	it("uses the full retry schedule when the SDK marks authentication retryable", async () => {
+		setCursorUnauthenticatedRetryDelaysMsForTests([0, 0]);
+		const mockSend = vi.fn().mockRejectedValue(
+			new AuthenticationError("Authentication service unavailable", {
+				code: "UNAUTHORIZED",
+				isRetryable: true,
+			}),
+		);
+		mockCreatedAgent({ send: mockSend });
+
+		const events = await collectEvents(streamCursor(makeModel(), makeContext(), { apiKey: "test-key" }));
+
+		expect(mockSend).toHaveBeenCalledTimes(3);
+		expect(collectThinkingDeltas(events)).toContain("retrying in 0s (2/2)");
+	});
+
+	it("keeps the full retry schedule when AuthenticationError wraps a ConnectError unauthenticated cause", async () => {
+		setCursorUnauthenticatedRetryDelaysMsForTests([0, 0]);
+		const mockSend = vi.fn().mockRejectedValue(
+			new AuthenticationError("[unauthenticated] unauthenticated", {
+				code: "unauthenticated",
+				isRetryable: false,
+				cause: makeUnauthenticatedConnectError(),
+			}),
+		);
+		mockCreatedAgent({ send: mockSend });
+
+		const events = await collectEvents(streamCursor(makeModel(), makeContext(), { apiKey: "test-key" }));
+
+		expect(mockSend).toHaveBeenCalledTimes(3);
+		expect(collectThinkingDeltas(events)).toContain("retrying in 0s (2/2)");
+	});
+
+	it("limits an ambiguous API key exchange rejection to one retry", async () => {
+		setCursorUnauthenticatedRetryDelaysMsForTests([0, 0, 0]);
+		const mockSend = vi.fn().mockRejectedValue(
+			new AuthenticationError("Invalid API key. Please check your Cursor API key and try again.", {
+				code: "unauthenticated",
+				isRetryable: false,
+			}),
+		);
+		mockCreatedAgent({ send: mockSend });
+
+		const events = await collectEvents(streamCursor(makeModel(), makeContext(), { apiKey: "test-key" }));
+
+		expect(mockSend).toHaveBeenCalledTimes(2);
+		expect(getErrorEvent(events).error.errorMessage).toContain("invalid or unauthorized");
+	});
+
+	it.each([
+		["unclassified invalid API key", () => new AuthenticationError("Invalid User API Key")],
+		[
+			"permission rejection",
+			() =>
+				new AuthenticationError("Insufficient permissions", {
+					code: "NOT_HIGH_ENOUGH_PERMISSIONS",
+					isRetryable: false,
+				}),
+		],
+	])("does not retry %s", async (_label, makeError) => {
+		setCursorUnauthenticatedRetryDelaysMsForTests([0, 0, 0]);
+		const mockSend = vi.fn().mockRejectedValue(makeError());
+		mockCreatedAgent({ send: mockSend });
+
+		await collectEvents(streamCursor(makeModel(), makeContext(), { apiKey: "test-key" }));
+
+		expect(mockSend).toHaveBeenCalledTimes(1);
 	});
 
 	it("labels cloud Agent.create auth failures as Cloud API auth before prepare completes", async () => {

@@ -7,6 +7,7 @@
 - Preserve Pi extension context on incremental Cursor turns, including model-facing hidden custom messages from background subagents, Magic Context, permission status, and included shell executions.
 - Preserve current-turn user images and every current-turn user context section when model-facing extension context follows them.
 - Run Pi's `before_provider_request` payload hook once before Cursor SDK sends and retries, accept validated `{ text, images }` replacements, and fail closed on incompatible replacement shapes.
+- Retry SDK-declared local authentication failures with the full schedule, and retry ambiguous local token/login rejections once before surfacing invalid-key guidance.
 - Return stable option `value` fields from `cursor_ask_question` summaries instead of UI labels.
 
 ## 0.3.12 - 2026-08-29 (Ayagikei fork)

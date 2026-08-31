@@ -21,7 +21,7 @@ import { emitDisplayOnlyTraceBlock } from "./cursor-display-only-trace.js";
 import { sanitizeCursorProviderError } from "./cursor-provider-errors.js";
 import {
 	getCursorUnauthenticatedRetryDelaysMs,
-	isTransientCursorUnauthenticatedError,
+	getCursorUnauthenticatedRetryLimit,
 	isTransientCursorUnauthenticatedMessage,
 	waitForCursorUnauthenticatedRetry,
 } from "./cursor-provider-unauthenticated-retry.js";
@@ -176,11 +176,8 @@ export class CursorProviderTurnRunner {
 					});
 					return;
 				} catch (error) {
-					if (
-						!isTransientCursorUnauthenticatedError(error) ||
-						attempt >= retryDelays.length ||
-						options?.signal?.aborted
-					) {
+					const retryLimit = Math.min(retryDelays.length, getCursorUnauthenticatedRetryLimit(error));
+					if (attempt >= retryLimit || options?.signal?.aborted) {
 						throw error;
 					}
 					const delayMs = retryDelays[attempt] ?? 0;
@@ -188,7 +185,7 @@ export class CursorProviderTurnRunner {
 					emitDisplayOnlyTraceBlock(
 						stream,
 						partial,
-						`Cursor SDK unauthenticated; retrying in ${delayMs / 1000}s (${attempt + 1}/${retryDelays.length}). ${sanitizeCursorProviderError(error, this.resolvedApiKey)}`,
+						`Cursor SDK unauthenticated; retrying in ${delayMs / 1000}s (${attempt + 1}/${retryLimit}). ${sanitizeCursorProviderError(error, this.resolvedApiKey)}`,
 					);
 					const abortRegistration = sendResult?.abortRegistration;
 					if (abortRegistration) {
