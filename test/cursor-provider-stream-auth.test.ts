@@ -171,12 +171,36 @@ describe("streamCursor auth and abort", () => {
 
 		const error = getErrorEvent(events);
 		const message = error.error.errorMessage;
-		expect(message).toContain("invalid or unauthorized");
-		expect(message).toContain("/login");
-		expect(message).toContain("CURSOR_API_KEY");
+		expect(message).toContain("Unauthorized Bearer [redacted]");
+		expect(message).not.toContain("/login");
+		expect(message).not.toContain("Provider returned error");
 		expect(message).not.toContain("super-secret-key-12345");
 	});
 
+	it("surfaces a frozen prepare auth error without replacing it by an annotation TypeError", async () => {
+		const frozen = Object.freeze(new Error("Unauthorized Bearer super-secret-key-12345"));
+		mockedCreate.mockRejectedValueOnce(frozen);
+
+		const events = await collectEvents(streamCursor(makeModel(), makeContext(), { apiKey: "super-secret-key-12345" }));
+		const message = getErrorEvent(events).error.errorMessage;
+
+		expect(message).toContain("Unauthorized Bearer [redacted]");
+		expect(message).toContain("[stage: prepare]");
+		expect(message).not.toContain("TypeError");
+		expect(message).not.toContain("super-secret-key-12345");
+		expect(message).not.toContain("Provider returned error");
+	});
+
+	it("surfaces a string prepare auth error with the same local diagnostics", async () => {
+		mockedCreate.mockRejectedValueOnce("Unauthorized Bearer super-secret-key-12345");
+
+		const events = await collectEvents(streamCursor(makeModel(), makeContext(), { apiKey: "super-secret-key-12345" }));
+		const message = getErrorEvent(events).error.errorMessage;
+
+		expect(message).toContain("Unauthorized Bearer [redacted]");
+		expect(message).toContain("[stage: prepare]");
+		expect(message).not.toContain("super-secret-key-12345");
+	});
 	it("retries a soft-classified SDK authentication send failure once", async () => {
 		setCursorUnauthenticatedRetryDelaysMsForTests([0, 0, 0]);
 		const mockSend = vi
@@ -246,9 +270,8 @@ describe("streamCursor auth and abort", () => {
 		const events = await collectEvents(streamCursor(makeModel(), makeContext(), { apiKey: "test-key" }));
 
 		expect(mockSend).toHaveBeenCalledTimes(2);
-		expect(getErrorEvent(events).error.errorMessage).toContain("invalid or unauthorized");
+		expect(getErrorEvent(events).error.errorMessage).toContain("Invalid API key");
 	});
-
 	it.each([
 		["unclassified invalid API key", () => new AuthenticationError("Invalid User API Key")],
 		[

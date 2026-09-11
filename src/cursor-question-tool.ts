@@ -3,6 +3,7 @@ import { Text } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
 import { arePiToolsDisabled } from "./cursor-active-tools.js";
 import { parseEnvBoolean } from "./cursor-env-boolean.js";
+import { setCursorAskQuestionStallHold } from "./cursor-mcp-timeout-override.js";
 import { isCursorModel } from "./cursor-model.js";
 import { registerCursorModelLifecycle, type CursorModelLifecycleExtensionApi } from "./cursor-model-lifecycle.js";
 import { resolveCursorPiToolBridgeEnabled } from "./cursor-pi-tool-bridge-env.js";
@@ -153,17 +154,26 @@ function buildDetails(questions: CursorQuestion[], answers: CursorQuestionAnswer
 	};
 }
 
-async function askOneQuestion(question: CursorQuestion, ctx: { ui: ExtensionContext["ui"] }): Promise<CursorQuestionAnswer> {
+async function askOneQuestion(
+	question: CursorQuestion,
+	ctx: { ui: ExtensionContext["ui"] },
+	signal?: AbortSignal,
+): Promise<CursorQuestionAnswer> {
+	const dialogOpts = signal ? { signal } : undefined;
 	if (question.options.length > 0) {
 		const labels = question.options.map((option) => option.description ? `${option.label} — ${option.description}` : option.label);
 		const customLabel = "Type a custom answer";
 		const choices = question.allowCustom ? [...labels, customLabel] : labels;
-		const selected = await ctx.ui.select(question.question, choices);
+		const selected = dialogOpts
+			? await ctx.ui.select(question.question, choices, dialogOpts)
+			: await ctx.ui.select(question.question, choices);
 		if (!selected) {
 			return { id: question.id, question: question.question, answer: null, wasCustom: false, cancelled: true };
 		}
 		if (selected === customLabel) {
-			const customAnswer = await ctx.ui.input(question.question, "Type your answer");
+			const customAnswer = dialogOpts
+				? await ctx.ui.input(question.question, "Type your answer", dialogOpts)
+				: await ctx.ui.input(question.question, "Type your answer");
 			const trimmed = customAnswer?.trim();
 			return trimmed
 				? { id: question.id, question: question.question, answer: trimmed, value: trimmed, wasCustom: true, cancelled: false }
@@ -182,7 +192,9 @@ async function askOneQuestion(question: CursorQuestion, ctx: { ui: ExtensionCont
 		};
 	}
 
-	const answer = await ctx.ui.input(question.question, "Type your answer");
+	const answer = dialogOpts
+		? await ctx.ui.input(question.question, "Type your answer", dialogOpts)
+		: await ctx.ui.input(question.question, "Type your answer");
 	const trimmed = answer?.trim();
 	return trimmed
 		? { id: question.id, question: question.question, answer: trimmed, value: trimmed, wasCustom: true, cancelled: false }
@@ -224,7 +236,7 @@ export function registerCursorQuestionTool(pi: CursorQuestionToolExtensionApi): 
 			"Use cursor_ask_question only when running a Cursor model and user input would materially change the plan, scope, platform, or implementation path.",
 			"Prefer cursor_ask_question with 2-4 concrete options instead of guessing when Cursor plan mode needs user choices.",
 		],
-		async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+		async execute(_toolCallId, params, signal, _onUpdate, ctx) {
 			const questions = normalizeQuestions(params as CursorAskQuestionParams);
 			if (questions.length === 0) {
 				throw new Error("No valid question was provided.");
@@ -238,10 +250,11 @@ export function registerCursorQuestionTool(pi: CursorQuestionToolExtensionApi): 
 			// Emit a package-namespaced blocked signal while the questionnaire
 			// awaits input so consumers (e.g. Herdr) can map it to blocked/working.
 			emitCursorAskQuestionBlockedEvent(pi, { active: true });
+			setCursorAskQuestionStallHold(true);
 			try {
 				const answers: CursorQuestionAnswer[] = [];
 				for (const question of questions) {
-					const answer = await askOneQuestion(question, ctx);
+					const answer = await askOneQuestion(question, ctx, signal);
 					answers.push(answer);
 					if (answer.cancelled) break;
 				}
@@ -251,6 +264,7 @@ export function registerCursorQuestionTool(pi: CursorQuestionToolExtensionApi): 
 					details: buildDetails(questions, answers, true),
 				};
 			} finally {
+				setCursorAskQuestionStallHold(false);
 				emitCursorAskQuestionBlockedEvent(pi, { active: false });
 			}
 		},

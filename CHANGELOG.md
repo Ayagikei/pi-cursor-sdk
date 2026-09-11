@@ -4,10 +4,13 @@
 
 ### Fixed
 
+- Hold Cursor SDK NAL stall probes while `cursor_ask_question` is waiting on pi UI, matching native `askQuestionInteractionQuery` pause behavior, and keep `local.enableAgentRetries: true`. A typed custom answer that outlasts the 30s stall / ~5-minute retry budget otherwise finishes the turn as `This operation was aborted` when the tool later returns.
+- Recreate a pooled local Cursor SDK agent after five minutes without a successful send instead of reusing a possibly dead transport. Idle replacement uses `Agent.create`, not `Agent.resume`. This is a local pooling policy, not a proven Cursor SDK session TTL.
+- Keep scrubbed original local auth/error details (name/code/cause) and annotate the provider failure stage instead of replacing local auth failures with generic invalid-key guidance.
 - Preserve Pi extension context on incremental Cursor turns, including model-facing hidden custom messages from background subagents, Magic Context, permission status, and included shell executions.
 - Preserve current-turn user images and every current-turn user context section when model-facing extension context follows them.
 - Run Pi's `before_provider_request` payload hook once before Cursor SDK sends and retries, accept validated `{ text, images }` replacements, and fail closed on incompatible replacement shapes.
-- Retry SDK-declared local authentication failures with the full schedule, and retry ambiguous local token/login rejections once before surfacing invalid-key guidance.
+- Retry SDK-declared local authentication failures with the full schedule, and retry ambiguous local token/login rejections once before surfacing the scrubbed failure.
 - Return stable option `value` fields from `cursor_ask_question` summaries instead of UI labels.
 
 ## 0.3.12 - 2026-08-29 (Ayagikei fork)

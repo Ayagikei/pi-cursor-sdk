@@ -2,6 +2,8 @@ import { AuthenticationError, IntegrationNotConnectedError } from "@cursor/sdk";
 import { describe, expect, it } from "vitest";
 import {
 	classifyCursorConnectError,
+	CURSOR_PROVIDER_ERROR_IDENTITY_FIELD_MAX,
+	CURSOR_PROVIDER_LOCAL_AUTH_DIAGNOSTIC_MAX,
 	isCursorSdkConnectionStalledError,
 	formatCursorSdkAbortMessage,
 	formatCursorSdkRunFailureDetail,
@@ -221,7 +223,7 @@ describe("cursor-provider-errors", () => {
 	it("scrubs secrets and maps generic startup errors to actionable auth guidance", () => {
 		expect(sanitizeCursorProviderError(new Error("Error"), "test-key")).toContain("Cursor SDK request failed");
 		expect(sanitizeCursorProviderError(new Error("Unauthorized Bearer secret-key"), "secret-key")).toContain(
-			"invalid or unauthorized",
+			"Unauthorized Bearer [redacted]",
 		);
 		expect(sanitizeCursorProviderError(new Error("Bearer secret-key"), "secret-key")).not.toContain("secret-key");
 	});
@@ -477,5 +479,132 @@ describe("cursor-provider-errors", () => {
 		expect(formatCursorSdkAbortMessage(resolveCursorSdkAbortCause({ liveRunDisposed: true }))).toBe(
 			"Cancelled: Cursor SDK live run ended before completion.",
 		);
+	});
+
+	it("keeps scrubbed local auth details instead of invalid-key guidance", () => {
+		const cause = new Error("nested Bearer secret-key");
+		cause.name = "TokenError";
+		(cause as Error & { code: string }).code = "expired-secret-key";
+		const error = new AuthenticationError("Unauthorized Bearer secret-key", {
+			code: "NOT_HIGH_ENOUGH_PERMISSIONS",
+			isRetryable: false,
+			cause,
+		});
+		const message = sanitizeCursorProviderError(error, "secret-key", "local", "prepare");
+
+		expect(message).toContain("Unauthorized Bearer [redacted]");
+		expect(message).toContain("AuthenticationError");
+		expect(message).toContain("NOT_HIGH_ENOUGH_PERMISSIONS");
+		expect(message).toContain("TokenError");
+		expect(message).toContain("expired-[redacted]");
+		expect(message).toContain("[stage: prepare]");
+		expect(message).not.toContain("secret-key");
+		expect(message).not.toContain("Bearer secret-key");
+		expect(message).not.toContain("may be invalid or unauthorized");
+		expect(message).not.toContain("/login");
+		expect(message).not.toContain("Provider returned error");
+	});
+
+	it("keeps retryable unauthenticated text plus bounded identity and stage", () => {
+		const error = makeUnauthenticatedConnectError();
+		const message = sanitizeCursorProviderError(error, "secret-key", "local", "send");
+
+		expect(message).toContain("Provider returned error");
+		expect(message).toContain("[unauthenticated] Error");
+		expect(message).toContain("ConnectError");
+		expect(message).toContain("code=16");
+		expect(message).toContain("[stage: send]");
+		expect(message).not.toContain("secret-key");
+		expect(message).not.toContain("Bearer");
+		expect(message).not.toContain("may be invalid or unauthorized");
+	});
+
+	it("does not dump ConnectError headers or widen retryable prefix for local likely-auth", () => {
+		const error = new Error("Unauthorized cookie=session-secret-key") as Error & {
+			code: string;
+			metadata: Headers;
+			cause: Error;
+		};
+		error.name = "ActionRequiredError";
+		error.code = "login-secret-key";
+		error.metadata = new Headers({ authorization: "Bearer secret-key" });
+		error.cause = new Error("cause Bearer secret-key");
+		error.cause.name = "ConnectError";
+		const message = sanitizeCursorProviderError(error, "secret-key", "local", "drain");
+
+		expect(message).toContain("Unauthorized cookie=[redacted]");
+		expect(message).toContain("ActionRequiredError");
+		expect(message).toContain("code=login-[redacted]");
+		expect(message).toContain("cause=ConnectError");
+		expect(message).toContain("Bearer [redacted]");
+		expect(message).toContain("[stage: drain]");
+		expect(message).not.toContain("secret-key");
+		expect(message).not.toContain("session-secret-key");
+		expect(message).not.toContain("Provider returned error");
+		expect(message).not.toContain("/login");
+	});
+
+	it("leaves missing-key and cloud auth guidance unchanged", () => {
+		const missing = new Error(
+			"Cursor SDK runs require a Cursor SDK API key. Cursor Agent CLI/Desktop login is not reused. Run /login -> Use an API key -> Cursor, set CURSOR_API_KEY before starting pi, or restart pi with --api-key.",
+		);
+		const cloud = new AuthenticationError("Unauthorized Bearer secret-key");
+
+		expect(sanitizeCursorProviderError(missing, "secret-key", "local", "prepare")).not.toContain("[stage:");
+		expect(sanitizeCursorProviderError(missing, "secret-key", "local", "prepare")).toContain("/login");
+		expect(sanitizeCursorProviderError(cloud, "secret-key", "cloud", "prepare")).toContain("Cloud API authentication");
+		expect(sanitizeCursorProviderError(cloud, "secret-key", "cloud", "prepare")).not.toContain("[stage:");
+		expect(sanitizeCursorProviderError(cloud, "secret-key", "cloud", "prepare")).not.toContain("secret-key");
+	});
+
+	it("does not double-prefix an already sanitized retryable unauthenticated message", () => {
+		const once = sanitizeCursorProviderError(makeUnauthenticatedConnectError(), "secret-key", "local", "wait");
+		const twice = sanitizeCursorProviderError(new Error(once), "secret-key", "local", "wait");
+
+		expect(twice).toBe(once);
+		expect(twice.match(/Provider returned error/g)).toHaveLength(1);
+		expect(twice.match(/\[stage: wait\]/g)).toHaveLength(1);
+	});
+
+	it("keeps original diagnostics for frozen errors and string primitives", () => {
+		const frozen = Object.freeze(new Error("Unauthorized Bearer secret-key"));
+		expect(() => sanitizeCursorProviderError(frozen, "secret-key", "local", "send")).not.toThrow();
+		const frozenMessage = sanitizeCursorProviderError(frozen, "secret-key", "local", "send");
+		expect(frozenMessage).toContain("Unauthorized Bearer [redacted]");
+		expect(frozenMessage).toContain("[stage: send]");
+		expect(frozenMessage).not.toContain("TypeError");
+
+		const stringMessage = sanitizeCursorProviderError("Unauthorized Bearer secret-key", "secret-key", "local", "drain");
+		expect(stringMessage).toContain("Unauthorized Bearer [redacted]");
+		expect(stringMessage).toContain("[stage: drain]");
+		expect(stringMessage).not.toContain("Provider returned error");
+	});
+
+	it("bounds scrubbed local auth identity fields and the final diagnostic", () => {
+		const huge = "secret-key-" + "A".repeat(1000);
+		const cause = new Error(`cause ${huge}`);
+		cause.name = `Token${huge}`;
+		(cause as Error & { code: string }).code = `expired-${huge}`;
+		const error = new AuthenticationError(`Unauthorized ${huge}`, {
+			code: `PERM-${huge}`,
+			isRetryable: false,
+			cause,
+		});
+		error.name = `Auth${huge}`;
+		const message = sanitizeCursorProviderError(error, "secret-key", "local", "prepare");
+
+		expect(message).toContain("Unauthorized [redacted]");
+		expect(message).toContain("[stage: prepare]");
+		expect(message).toContain("…");
+		expect(message).not.toContain(huge);
+		expect(message).not.toContain("secret-key");
+		expect(message).not.toContain("Provider returned error");
+		expect(message).not.toContain("/login");
+		expect(message.length).toBeLessThanOrEqual(CURSOR_PROVIDER_LOCAL_AUTH_DIAGNOSTIC_MAX);
+		for (const field of [error.name, String(error.code), cause.name, String((cause as Error & { code: string }).code), cause.message]) {
+			const scrubbed = field.replaceAll("secret-key", "[redacted]");
+			expect(scrubbed.length).toBeGreaterThan(CURSOR_PROVIDER_ERROR_IDENTITY_FIELD_MAX);
+			expect(message).not.toContain(scrubbed);
+		}
 	});
 });

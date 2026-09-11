@@ -463,6 +463,37 @@ describe("extension registration and discovery", () => {
 		});
 	});
 
+	it("forwards the tool abort signal to custom Cursor question input", async () => {
+		process.env.PI_CURSOR_NATIVE_TOOL_DISPLAY = "0";
+		mockedDiscover.mockResolvedValueOnce([]);
+		const pi = createExtensionPi();
+		await extensionFactory(pi);
+		await pi.runSessionStart();
+
+		const abort = new AbortController();
+		const select = vi.fn().mockResolvedValue("Type a custom answer");
+		const input = vi.fn().mockResolvedValue("先汇报一下到底是啥改动呀，我都不知道");
+		const tool = pi._tools.find((candidate) => candidate.name === CURSOR_ASK_QUESTION_TOOL_NAME);
+		const result = await tool!.execute(
+			"question-custom",
+			{
+				question: "怎么处理？",
+				options: [{ label: "留着", value: "keep" }],
+				allowCustom: true,
+			},
+			abort.signal,
+			undefined,
+			createExtensionTestContext({ ui: { notify: vi.fn(), setStatus: vi.fn(), select, input } }),
+		);
+
+		expect(select).toHaveBeenCalledWith("怎么处理？", ["留着", "Type a custom answer"], { signal: abort.signal });
+		expect(input).toHaveBeenCalledWith("怎么处理？", "Type your answer", { signal: abort.signal });
+		expect(result.content).toEqual([{ type: "text", text: "User answered: 先汇报一下到底是啥改动呀，我都不知道" }]);
+		expect(result.details).toMatchObject({
+			answers: [{ wasCustom: true, cancelled: false, value: "先汇报一下到底是啥改动呀，我都不知道" }],
+		});
+	});
+
 	it("returns stable option values for multiple Cursor questions", async () => {
 		process.env.PI_CURSOR_NATIVE_TOOL_DISPLAY = "0";
 		mockedDiscover.mockResolvedValueOnce([]);

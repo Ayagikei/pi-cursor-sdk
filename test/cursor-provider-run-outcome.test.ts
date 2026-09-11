@@ -88,7 +88,7 @@ describe("cursor-provider-run-outcome", () => {
 		});
 
 		expect(cloud.kind === "error" && cloud.errorMessage).toContain("Cloud API authentication");
-		expect(local.kind === "error" && local.errorMessage).toContain("Cursor SDK API key may be invalid or unauthorized");
+		expect(local.kind === "error" && local.errorMessage).toContain("Unauthorized");
 	});
 
 	it("maps wait-result unauthenticated text to a retryable provider error", () => {

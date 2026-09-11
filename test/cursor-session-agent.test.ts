@@ -6,6 +6,7 @@ import { __testUtils as cursorSessionScopeTestUtils, registerCursorSessionScope 
 import { __testUtils as resumeTestUtils } from "../src/cursor-session-agent-resume.js";
 import {
 	acquireSessionCursorAgent,
+	buildCursorLocalAgentOptions,
 	__testUtils as sessionAgentTestUtils,
 } from "../src/cursor-session-agent.js";
 import { registerCursorSessionAgentLifecycle } from "../src/cursor-session-agent-lifecycle.js";
@@ -904,12 +905,20 @@ describe("cursor-session-agent", () => {
 		expect(createAgent).toHaveBeenCalledWith(expect.objectContaining({
 			local: expect.objectContaining({
 				cwd: "/tmp/project",
+				enableAgentRetries: true,
 				settingSources: ["all"],
 				autoReview: true,
 				sandboxOptions: { enabled: true },
 				store: expect.any(Object),
 			}),
 		}));
+	});
+
+	it("enables SDK stall auto-retry on every local agent create", () => {
+		expect(buildCursorLocalAgentOptions({ cwd: "/tmp/project" })).toEqual({
+			cwd: "/tmp/project",
+			enableAgentRetries: true,
+		});
 	});
 
 	it("omits disabled local safety options from Agent.create", async () => {
@@ -929,7 +938,11 @@ describe("cursor-session-agent", () => {
 		});
 
 		expect(createAgent).toHaveBeenCalledWith(expect.objectContaining({
-			local: expect.objectContaining({ cwd: "/tmp/project", store: expect.any(Object) }),
+			local: expect.objectContaining({
+				cwd: "/tmp/project",
+				enableAgentRetries: true,
+				store: expect.any(Object),
+			}),
 		}));
 		expect(createAgent.mock.calls[0][0].local).not.toHaveProperty("autoReview");
 		expect(createAgent.mock.calls[0][0].local).not.toHaveProperty("sandboxOptions");

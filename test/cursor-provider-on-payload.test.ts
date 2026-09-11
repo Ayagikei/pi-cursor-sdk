@@ -6,9 +6,13 @@ import {
 	makeContext,
 	makeModel,
 	mockCreatedAgent,
+	asMockSdkAgent,
+	mockedCreate,
+	mockedResume,
 	resetCursorProviderTestState,
 } from "./helpers/cursor-provider-harness.js";
 import { streamCursor } from "../src/cursor-provider.js";
+import { CURSOR_LOCAL_AGENT_IDLE_MS } from "../src/cursor-session-agent.js";
 import { setCursorUnauthenticatedRetryDelaysMsForTests } from "../src/cursor-provider-unauthenticated-retry.js";
 
 function makeFinishedRun() {
@@ -108,5 +112,73 @@ describe("Cursor provider onPayload", () => {
 
 		expect(send).toHaveBeenCalledTimes(3);
 		expect(onPayload).toHaveBeenCalledTimes(1);
+	});
+
+	it("recreates an idle pooled agent with one onPayload and a bootstrap send", async () => {
+		const firstDispose = vi.fn().mockResolvedValue(undefined);
+		const send = vi.fn()
+			.mockResolvedValueOnce(makeFinishedRun())
+			.mockResolvedValueOnce(asMockCursorRun({
+				id: "run-2",
+				agentId: "agent-2",
+				status: "finished",
+				wait: vi.fn().mockResolvedValue({ id: "run-2", status: "finished" }),
+			}));
+		mockedCreate
+			.mockResolvedValueOnce(asMockSdkAgent({
+				agentId: "agent-1",
+				send,
+				[Symbol.asyncDispose]: firstDispose,
+			}))
+			.mockResolvedValueOnce(asMockSdkAgent({
+				agentId: "agent-2",
+				send,
+				[Symbol.asyncDispose]: vi.fn().mockResolvedValue(undefined),
+			}));
+
+		let nowMs = 1_000;
+		const nowSpy = vi.spyOn(Date, "now").mockImplementation(() => nowMs);
+		try {
+			const firstOnPayload = vi.fn((payload: unknown) => payload);
+			const firstContext = makeContext();
+			await collectEvents(streamCursor(makeModel(), firstContext, { apiKey: "test-key", onPayload: firstOnPayload }));
+
+			expect(firstOnPayload).toHaveBeenCalledTimes(1);
+			expect(mockedCreate).toHaveBeenCalledTimes(1);
+			expect(send).toHaveBeenCalledTimes(1);
+			expect((send.mock.calls[0]?.[0] as { text?: string }).text).toContain("Cursor SDK tool boundary:");
+			expect(firstOnPayload.mock.calls[0]?.[0]).toEqual(send.mock.calls[0]?.[0]);
+
+			nowMs = 1_000 + CURSOR_LOCAL_AGENT_IDLE_MS;
+			const secondOnPayload = vi.fn((payload: unknown) => payload);
+			const followUpContext = makeContext();
+			followUpContext.messages = [
+				...firstContext.messages,
+				{
+					role: "assistant",
+					content: [{ type: "text", text: "Hi there." }],
+					api: "cursor-sdk",
+					provider: "cursor",
+					model: "test-model",
+					usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } },
+					stopReason: "stop",
+					timestamp: 2,
+				},
+				{ role: "user", content: "Follow up", timestamp: 3 },
+			];
+			await collectEvents(streamCursor(makeModel(), followUpContext, { apiKey: "test-key", onPayload: secondOnPayload }));
+
+			expect(secondOnPayload).toHaveBeenCalledTimes(1);
+			expect(mockedCreate).toHaveBeenCalledTimes(2);
+			expect(mockedResume).not.toHaveBeenCalled();
+			expect(firstDispose).toHaveBeenCalledTimes(1);
+			expect(send).toHaveBeenCalledTimes(2);
+			const secondPrompt = send.mock.calls[1]?.[0] as { text?: string };
+			expect(secondPrompt.text).toContain("Cursor SDK tool boundary:");
+			expect(secondPrompt.text).toContain("Follow up");
+			expect(secondOnPayload.mock.calls[0]?.[0]).toEqual(send.mock.calls[1]?.[0]);
+		} finally {
+			nowSpy.mockRestore();
+		}
 	});
 });

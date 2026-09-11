@@ -3,6 +3,9 @@ const DEFAULT_CURSOR_MCP_TOOL_TIMEOUT_MS = 3_600_000;
 const DEFAULT_CURSOR_MCP_CONNECT_TIMEOUT_MS = 10_000;
 const MIN_CURSOR_MCP_CONNECT_TIMEOUT_MS = 1_000;
 const MAX_NODE_TIMER_DELAY_MS = 2_147_483_647;
+const CURSOR_SDK_NAL_STALL_FAIL_TIMEOUT_MS = 30_000;
+const CURSOR_SDK_NAL_STALL_HEARTBEAT_ONLY_TIMEOUT_MS = 90_000;
+const CURSOR_SDK_NAL_STALL_HOLD_POLL_MS = 1_000;
 const CURSOR_MCP_TOOL_TIMEOUT_MS_ENV = "PI_CURSOR_MCP_TOOL_TIMEOUT_MS";
 const CURSOR_MCP_TOOL_TIMEOUT_SECONDS_ENV = "PI_CURSOR_MCP_TOOL_TIMEOUT_SECONDS";
 const CURSOR_MCP_CONNECT_TIMEOUT_MS_ENV = "PI_CURSOR_MCP_CONNECT_TIMEOUT_MS";
@@ -28,6 +31,8 @@ type SetTimeoutDelay = Parameters<GlobalSetTimeout>[1];
 let originalSetTimeout: GlobalSetTimeout | undefined;
 let installedToolTimeoutMs = DEFAULT_CURSOR_MCP_TOOL_TIMEOUT_MS;
 let installedConnectTimeoutMs = DEFAULT_CURSOR_MCP_CONNECT_TIMEOUT_MS;
+let askQuestionStallHoldCount = 0;
+let nalStallTimerHandlers = new WeakSet<object>();
 
 function parsePositiveNumber(value: string | undefined): number | undefined {
 	const trimmed = value?.trim();
@@ -94,8 +99,49 @@ export function isCursorSdkMcpConnectTimeoutStack(stack: string | undefined): bo
 	return /\bClient\.(?:connect|listTools)\b|\bMcpSdkClient\.getTools\b/.test(stack);
 }
 
+export function setCursorAskQuestionStallHold(active: boolean): void {
+	askQuestionStallHoldCount += active ? 1 : -1;
+	if (askQuestionStallHoldCount < 0) askQuestionStallHoldCount = 0;
+}
+
+export function isCursorAskQuestionStallHoldActive(): boolean {
+	return askQuestionStallHoldCount > 0;
+}
+
+export function isCursorSdkNalStallTimerStack(stack: string | undefined): boolean {
+	if (!stack) return false;
+	return (
+		/(?:node_modules[/\\]@cursor[/\\]sdk|node_modules\/\@cursor\/sdk|@cursor\/sdk\/dist)/.test(stack) &&
+		/\b(?:startTimer|startHeartbeatOnlyTimer)\b/.test(stack)
+	);
+}
+
 function isCursorSdkDefaultMcpTimeout(delay: SetTimeoutDelay): boolean {
 	return typeof delay === "number" && delay === CURSOR_SDK_MCP_DEFAULT_TIMEOUT_MS;
+}
+
+function isCursorSdkNalStallDiscoveryDelay(delay: SetTimeoutDelay): boolean {
+	return (
+		typeof delay === "number" &&
+		(delay === CURSOR_SDK_NAL_STALL_FAIL_TIMEOUT_MS || delay === CURSOR_SDK_NAL_STALL_HEARTBEAT_ONLY_TIMEOUT_MS)
+	);
+}
+
+function wrapNalStallTimerHandler(handler: SetTimeoutHandler): SetTimeoutHandler {
+	if (typeof handler !== "function") return handler;
+	const delegate = originalSetTimeout;
+	if (!delegate) return handler;
+	let skippedDuringHold = false;
+	const wrapped = (...callbackArgs: unknown[]) => {
+		if (isCursorAskQuestionStallHoldActive()) {
+			skippedDuringHold = true;
+			Reflect.apply(delegate, globalThis, [wrapped, CURSOR_SDK_NAL_STALL_HOLD_POLL_MS]);
+			return;
+		}
+		if (skippedDuringHold) return;
+		handler(...callbackArgs);
+	};
+	return wrapped as SetTimeoutHandler;
 }
 
 function patchedSetTimeout(
@@ -106,17 +152,33 @@ function patchedSetTimeout(
 	const delegate = originalSetTimeout;
 	if (!delegate) throw new Error("Cursor MCP timeout override installed without original setTimeout");
 
+	let nextHandler = handler;
+	if (typeof nextHandler === "function" && nalStallTimerHandlers.has(nextHandler)) {
+		nextHandler = wrapNalStallTimerHandler(nextHandler);
+	}
+
 	let nextDelay = delay;
-	if (isCursorSdkDefaultMcpTimeout(delay)) {
+	const needsStack = isCursorSdkDefaultMcpTimeout(delay) || isCursorSdkNalStallDiscoveryDelay(delay);
+	if (needsStack) {
 		const stack = new Error().stack;
-		if (isCursorSdkMcpToolTimeoutStack(stack)) {
-			nextDelay = installedToolTimeoutMs;
-		} else if (isCursorSdkMcpConnectTimeoutStack(stack)) {
-			nextDelay = installedConnectTimeoutMs;
+		if (isCursorSdkDefaultMcpTimeout(delay)) {
+			if (isCursorSdkMcpToolTimeoutStack(stack)) {
+				nextDelay = installedToolTimeoutMs;
+			} else if (isCursorSdkMcpConnectTimeoutStack(stack)) {
+				nextDelay = installedConnectTimeoutMs;
+			}
+		}
+		if (
+			isCursorSdkNalStallDiscoveryDelay(delay) &&
+			typeof handler === "function" &&
+			isCursorSdkNalStallTimerStack(stack)
+		) {
+			nalStallTimerHandlers.add(handler);
+			if (nextHandler === handler) nextHandler = wrapNalStallTimerHandler(handler);
 		}
 	}
 
-	return Reflect.apply(delegate, globalThis, [handler, nextDelay, ...args]) as ReturnType<GlobalSetTimeout>;
+	return Reflect.apply(delegate, globalThis, [nextHandler, nextDelay, ...args]) as ReturnType<GlobalSetTimeout>;
 }
 
 export function installCursorMcpToolTimeoutOverride(
@@ -149,6 +211,8 @@ export function restoreCursorMcpToolTimeoutOverride(): void {
 	}
 	installedToolTimeoutMs = DEFAULT_CURSOR_MCP_TOOL_TIMEOUT_MS;
 	installedConnectTimeoutMs = DEFAULT_CURSOR_MCP_CONNECT_TIMEOUT_MS;
+	askQuestionStallHoldCount = 0;
+	nalStallTimerHandlers = new WeakSet<object>();
 }
 
 export const cursorMcpToolTimeoutOverrideDefaults = {
@@ -161,4 +225,7 @@ export const cursorMcpToolTimeoutOverrideDefaults = {
 	timeoutSecondsEnv: CURSOR_MCP_TOOL_TIMEOUT_SECONDS_ENV,
 	connectTimeoutMsEnv: CURSOR_MCP_CONNECT_TIMEOUT_MS_ENV,
 	connectTimeoutSecondsEnv: CURSOR_MCP_CONNECT_TIMEOUT_SECONDS_ENV,
+	nalStallFailTimeoutMs: CURSOR_SDK_NAL_STALL_FAIL_TIMEOUT_MS,
+	nalStallHeartbeatOnlyTimeoutMs: CURSOR_SDK_NAL_STALL_HEARTBEAT_ONLY_TIMEOUT_MS,
+	nalStallHoldPollMs: CURSOR_SDK_NAL_STALL_HOLD_POLL_MS,
 } as const;

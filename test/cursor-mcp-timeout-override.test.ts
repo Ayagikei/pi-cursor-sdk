@@ -5,11 +5,14 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
 	cursorMcpToolTimeoutOverrideDefaults,
 	installCursorMcpToolTimeoutOverride,
+	isCursorAskQuestionStallHoldActive,
 	isCursorSdkMcpConnectTimeoutStack,
 	isCursorSdkMcpToolTimeoutStack,
+	isCursorSdkNalStallTimerStack,
 	resolveCursorMcpConnectTimeoutMs,
 	resolveCursorMcpToolTimeoutMs,
 	restoreCursorMcpToolTimeoutOverride,
+	setCursorAskQuestionStallHold,
 } from "../src/cursor-mcp-timeout-override.js";
 
 afterEach(() => {
@@ -104,6 +107,24 @@ return (() => {
 	}
 
 	return new Client().listPrompts();
+})();
+//# sourceURL=${sdkUrl}
+`;
+	const run = new Function("callback", source) as (callback: () => void) => ReturnType<typeof setTimeout>;
+	return run(callback);
+}
+
+function scheduleSyntheticCursorSdkNalStallTimer(callback: () => void): ReturnType<typeof setTimeout> {
+	const sdkUrl = pathToFileURL(join(process.cwd(), "node_modules/@cursor/sdk/dist/esm/357.js")).href;
+	const source = `
+return (() => {
+	class StallDetector {
+		startTimer() {
+			return setTimeout(callback, 30000);
+		}
+	}
+
+	return new StallDetector().startTimer();
 })();
 //# sourceURL=${sdkUrl}
 `;
@@ -207,6 +228,7 @@ describe("Cursor MCP timeout override", () => {
 			installCursorMcpToolTimeoutOverride: () => calls.push("install"),
 		}));
 		vi.doMock("../src/cursor-session-agent.js", () => ({
+			CURSOR_LOCAL_AGENT_IDLE_MS: 5 * 60 * 1000,
 			acquireSessionCursorAgent: async () => {
 				calls.push("acquire");
 				throw new Error("stop before Cursor agent creation");
@@ -305,6 +327,38 @@ describe("Cursor MCP timeout override", () => {
 				[cursorMcpToolTimeoutOverrideDefaults.connectTimeoutMsEnv]: "120000",
 			}),
 		).toBe(cursorMcpToolTimeoutOverrideDefaults.cursorSdkDefaultTimeoutMs);
+	});
+
+	it("holds NAL stall probes while cursor_ask_question is blocked and drops them after", () => {
+		vi.useFakeTimers();
+		installCursorMcpToolTimeoutOverride();
+		const callback = vi.fn();
+		expect(isCursorSdkNalStallTimerStack("at StallDetector.startTimer (file:///repo/node_modules/@cursor/sdk/dist/esm/357.js:1:1)")).toBe(true);
+
+		setCursorAskQuestionStallHold(true);
+		expect(isCursorAskQuestionStallHoldActive()).toBe(true);
+		scheduleSyntheticCursorSdkNalStallTimer(callback);
+
+		vi.advanceTimersByTime(30_000);
+		expect(callback).not.toHaveBeenCalled();
+		vi.advanceTimersByTime(cursorMcpToolTimeoutOverrideDefaults.nalStallHoldPollMs * 6);
+		expect(callback).not.toHaveBeenCalled();
+
+		setCursorAskQuestionStallHold(false);
+		expect(isCursorAskQuestionStallHoldActive()).toBe(false);
+		vi.advanceTimersByTime(cursorMcpToolTimeoutOverrideDefaults.nalStallHoldPollMs);
+		expect(callback).not.toHaveBeenCalled();
+	});
+
+	it("still fires NAL stall probes when cursor_ask_question is not blocked", () => {
+		vi.useFakeTimers();
+		installCursorMcpToolTimeoutOverride();
+		const callback = vi.fn();
+		scheduleSyntheticCursorSdkNalStallTimer(callback);
+		vi.advanceTimersByTime(29_999);
+		expect(callback).not.toHaveBeenCalled();
+		vi.advanceTimersByTime(1);
+		expect(callback).toHaveBeenCalledTimes(1);
 	});
 
 	it("does not extend unrelated 60s timers", () => {

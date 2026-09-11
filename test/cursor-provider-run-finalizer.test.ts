@@ -130,7 +130,7 @@ describe("CursorRunFinalizer", () => {
 		expect(mockAwaitFinalizeCursorRunOutcome).toHaveBeenCalledTimes(1);
 		expect(trackRunCompletion).toHaveBeenCalledTimes(1);
 		await expect(trackRunCompletion.mock.calls[0]?.[0]).resolves.toBeUndefined();
-		expect(prepared.runtime.liveRun).toMatchObject({ done: true, errorMessage: "run wait failed" });
+		expect(prepared.runtime.liveRun).toMatchObject({ done: true, errorMessage: "run wait failed [stage: wait]" });
 		expect(captureRunArtifacts).not.toHaveBeenCalled();
 		sdkProcessErrorGuard.dispose();
 	});

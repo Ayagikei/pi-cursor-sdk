@@ -20,7 +20,7 @@ import {
 	type CursorNativeToolDisplayItem,
 } from "./cursor-native-tool-display-state.js";
 import { type CursorPiBridgeToolRequest } from "./cursor-pi-tool-bridge.js";
-import { resetSessionCursorAgent } from "./cursor-session-agent.js";
+import { CURSOR_LOCAL_AGENT_IDLE_MS, resetSessionCursorAgent } from "./cursor-session-agent.js";
 import { applyCursorUsage } from "./cursor-usage-accounting.js";
 import { CursorPartialContentEmitter } from "./cursor-partial-content-emitter.js";
 import { emitDisplayOnlyTraceBlock } from "./cursor-display-only-trace.js";
@@ -35,7 +35,7 @@ import { formatInactiveCursorReplayTrace } from "./cursor-native-replay-trace.js
 import { partitionNativeToolsByActiveContext } from "./cursor-native-replay-routing.js";
 import type { CursorSdkEventDebugRecorder } from "./cursor-sdk-event-debug.js";
 
-export const DEFAULT_CURSOR_NATIVE_REPLAY_IDLE_DISPOSE_MS = 5 * 60 * 1000;
+export const DEFAULT_CURSOR_NATIVE_REPLAY_IDLE_DISPOSE_MS = CURSOR_LOCAL_AGENT_IDLE_MS;
 const CURSOR_NATIVE_REPLAY_TOOL_ID_PATTERN = /^(cursor-replay-\d+-\d+)-tool-\d+$/;
 
 interface CursorLiveTurnState {

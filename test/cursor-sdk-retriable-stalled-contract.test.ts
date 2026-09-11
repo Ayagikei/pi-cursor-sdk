@@ -75,4 +75,22 @@ describe("installed Cursor SDK RetriableError connection-stalled contract", () =
 			expect(sanitized).not.toMatch(/stalled(?: repeatedly)?/i);
 		}
 	});
+
+	it("exposes LocalAgentOptions.enableAgentRetries and a 30s NAL stall failTimeoutMs default", () => {
+		const optionsSource = readFileSync(join(sdkRoot, "dist/esm/options.d.ts"), "utf8");
+		expect(optionsSource).toContain("enableAgentRetries?: boolean");
+		expect(optionsSource).toContain("Enable transport and stall auto-retry for local agent runs");
+
+		const bundled = readFileSync(join(sdkRoot, "dist/bundled/index.js"), "utf8");
+		expect(bundled).toContain("failTimeoutMs");
+		expect(bundled).toMatch(/\$f8=30000[\s\S]{0,180}failTimeoutMs/);
+		expect(bundled).toContain('CS8=new Set(["askQuestionInteractionQuery"');
+		expect(bundled).toContain("this.stallSuspender?.setPaused(!0)");
+
+		const executorSource = readFileSync(join(sdkRoot, "dist/esm/357.js"), "utf8");
+		expect(executorSource).toContain("startTimer(){");
+		expect(executorSource).toContain("startHeartbeatOnlyTimer(){");
+		expect(executorSource).toContain('this.onStallDetected("no_activity")');
+		expect(executorSource).toContain("this.timer=setTimeout(e,this.thresholdMs)");
+	});
 });

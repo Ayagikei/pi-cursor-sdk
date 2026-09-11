@@ -22,6 +22,8 @@ import {
 	type OpenCursorSessionStore,
 } from "./cursor-session-store.js";
 
+export const CURSOR_LOCAL_AGENT_IDLE_MS = 5 * 60 * 1000;
+
 export interface SessionCursorAgentSendState {
 	bootstrapped: boolean;
 	contextFingerprint: string;
@@ -65,6 +67,7 @@ interface SessionCursorAgentReadyEntry extends SessionCursorAgentPoolEntryBase {
 	resumeEnabled: boolean;
 	resumed: boolean;
 	resumeNotice?: string;
+	lastUsedAtMs?: number;
 }
 
 interface SessionCursorAgentBusyEntry extends SessionCursorAgentPoolEntryBase {
@@ -75,6 +78,7 @@ interface SessionCursorAgentBusyEntry extends SessionCursorAgentPoolEntryBase {
 	resumeEnabled: boolean;
 	resumed: boolean;
 	resumeNotice?: string;
+	lastUsedAtMs?: number;
 	completionSettled: Promise<void>;
 	pendingCompletion: Promise<void>;
 	releaseBusyWait: () => void;
@@ -139,6 +143,7 @@ interface SessionCursorAgentCreateParams {
 const sessionAgentsByScope = new Map<string, SessionCursorAgentPoolEntry>();
 const invalidatedScopeKeys = new Set<string>();
 const deadTransportScopeKeys = new Set<string>();
+const skipResumeScopeKeys = new Set<string>();
 let deadTransportAgentDisposeTimeoutMs = 3000;
 const terminalDisposedScopeGenerations = new Map<string, number>();
 const scopeCreationGenerations = new Map<string, number>();
@@ -159,6 +164,11 @@ export function buildCursorLocalAgentOptions(options: {
 }): LocalAgentOptions {
 	return {
 		cwd: options.cwd,
+		// Installed @cursor/sdk 1.0.28 NAL stall failTimeoutMs defaults to 30s.
+		// Unset enableAgentRetries is classified as false, so a pi UI wait
+		// (cursor_ask_question custom reply) aborts the live run as
+		// "This operation was aborted" when the local MCP tool later returns.
+		enableAgentRetries: true,
 		...(options.store ? { store: options.store } : {}),
 		...(options.settingSources ? { settingSources: options.settingSources } : {}),
 		...(options.localSafety?.autoReview === true ? { autoReview: true } : {}),
@@ -302,6 +312,7 @@ function commitSessionAgentSendForLease(
 	} else {
 		entry.sendState.incrementalSendCount += 1;
 	}
+	entry.lastUsedAtMs = Date.now();
 	if (entry.resumeEnabled) {
 		persistCursorSessionAgentResumeHandle({
 			runtime: "local",
@@ -458,7 +469,7 @@ async function createSessionAgentEntry(
 		}
 
 		const resolvedPoolKey = buildSessionAgentPoolKey(scopeKey, params);
-		const resumeEligible = params.localResume === true && !params.forceCreate;
+		const resumeEligible = params.localResume === true && !params.forceCreate && !skipResumeScopeKeys.has(scopeKey);
 		let createAgent = params.createAgent;
 		let resumeAgent = params.resumeAgent;
 		if (!createAgent || (resumeEligible && !resumeAgent)) {
@@ -549,7 +560,7 @@ export function invalidateSessionAgent(
 export async function acquireSessionCursorAgent(params: SessionCursorAgentCreateParams): Promise<SessionCursorAgentLease> {
 	const scopeKey = getCursorSessionScopeKey();
 	const persistentStore = getCursorSessionFile() !== undefined;
-
+	let forceCreate = params.forceCreate === true;
 	while (true) {
 		assertScopeAcceptsAcquire(scopeKey);
 		if (invalidatedScopeKeys.has(scopeKey)) {
@@ -565,6 +576,16 @@ export async function acquireSessionCursorAgent(params: SessionCursorAgentCreate
 		}
 
 		if (state.status === "ready") {
+			if (
+				state.lastUsedAtMs !== undefined &&
+				Date.now() - state.lastUsedAtMs >= CURSOR_LOCAL_AGENT_IDLE_MS
+			) {
+				skipResumeScopeKeys.add(scopeKey);
+				invalidateSessionAgent(scopeKey, { deadTransport: true });
+				await disposePoolEntryForScope(scopeKey);
+				forceCreate = true;
+				continue;
+			}
 			return leaseFromEntry(state, scopeKey, params, false);
 		}
 
@@ -598,7 +619,10 @@ export async function acquireSessionCursorAgent(params: SessionCursorAgentCreate
 		const instanceId = allocateSessionAgentInstanceId();
 		const sendState = createInitialSendState();
 		let placeholder: SessionCursorAgentCreatingEntry;
-		const creating = createSessionAgentEntry(scopeKey, persistentStore, instanceId, sendState, params).then(async (createdEntry) => {
+		const creating = createSessionAgentEntry(scopeKey, persistentStore, instanceId, sendState, {
+			...params,
+			forceCreate,
+		}).then(async (createdEntry) => {
 			const stillCurrent =
 				sessionAgentsByScope.get(scopeKey) === placeholder &&
 				getScopeCreationGeneration(scopeKey) === placeholder.creationGeneration;
@@ -610,6 +634,7 @@ export async function acquireSessionCursorAgent(params: SessionCursorAgentCreate
 				throw new SessionCursorAgentCreationSupersededError();
 			}
 			sessionAgentsByScope.set(scopeKey, createdEntry);
+			skipResumeScopeKeys.delete(scopeKey);
 			return createdEntry;
 		});
 		placeholder = {
@@ -666,6 +691,7 @@ export async function disposeAllSessionCursorAgents(): Promise<void> {
 	await Promise.all(scopeKeys.map((scopeKey) => disposePoolEntryForScope(scopeKey, { terminal: true })));
 	invalidatedScopeKeys.clear();
 	deadTransportScopeKeys.clear();
+	skipResumeScopeKeys.clear();
 	terminalDisposedScopeGenerations.clear();
 }
 

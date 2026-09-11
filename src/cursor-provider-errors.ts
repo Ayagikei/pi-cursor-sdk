@@ -7,8 +7,6 @@ export const MISSING_CURSOR_API_KEY_MESSAGE =
 	"Cursor SDK runs require a Cursor SDK API key. Cursor Agent CLI/Desktop login is not reused. Run /login -> Use an API key -> Cursor, set CURSOR_API_KEY before starting pi, or restart pi with --api-key.";
 const GENERIC_CURSOR_SDK_ERROR_MESSAGE =
 	"Cursor SDK request failed. The Cursor SDK API key may be missing, invalid, or unauthorized. Cursor Agent CLI/Desktop login is not reused. Run /login -> Use an API key -> Cursor, verify CURSOR_API_KEY, or pass --api-key, then retry.";
-const AUTH_CURSOR_SDK_ERROR_MESSAGE =
-	"Cursor SDK request failed because the Cursor SDK API key may be invalid or unauthorized. Cursor Agent CLI/Desktop login is not reused. Run /login -> Use an API key -> Cursor, verify CURSOR_API_KEY, or pass --api-key, then retry.";
 const CLOUD_AUTH_CURSOR_SDK_ERROR_MESSAGE =
 	"Cursor Cloud Agents request failed because Cloud API authentication rejected the API key. Use a user API key from Cursor Dashboard -> API Keys or a service account API key from Team settings; Team Admin API keys are not supported as Cursor Cloud Agents credentials. Configure the key with /login -> Use an API key -> Cursor, CURSOR_API_KEY, or --api-key, then retry.";
 // Keep "Network error" aligned with pi's agent-level retry classifier.
@@ -356,15 +354,124 @@ export function resolveCursorSdkAbortCause(options: {
 	return "unknown";
 }
 
+export type CursorProviderFailureStage = "prepare" | "send" | "wait" | "drain";
+
+export const CURSOR_PROVIDER_ERROR_IDENTITY_FIELD_MAX = 120;
+export const CURSOR_PROVIDER_LOCAL_AUTH_DIAGNOSTIC_MAX = 480;
+const CURSOR_PROVIDER_FAILURE_STAGES = new Set<CursorProviderFailureStage>(["prepare", "send", "wait", "drain"]);
+
+function readCursorProviderFailureStage(stage: CursorProviderFailureStage | undefined): CursorProviderFailureStage | undefined {
+	return stage && CURSOR_PROVIDER_FAILURE_STAGES.has(stage) ? stage : undefined;
+};
+
+function appendCursorProviderFailureStage(message: string, stage: CursorProviderFailureStage | undefined): string {
+	if (!stage) return message;
+	const marker = ` [stage: ${stage}]`;
+	return message.includes("[stage:") ? message : `${message}${marker}`;
+};
+
+function boundScrubbedField(value: string, max: number): string {
+	if (max <= 0) return "";
+	if (value.length <= max) return value;
+	if (max === 1) return "…";
+	return `${value.slice(0, max - 1)}…`;
+};
+
+function formatBoundedErrorCode(code: unknown, apiKey: string | undefined): string | undefined {
+	if (typeof code === "number" && Number.isFinite(code)) {
+		return boundScrubbedField(String(code), CURSOR_PROVIDER_ERROR_IDENTITY_FIELD_MAX);
+	}
+	if (typeof code !== "string") return undefined;
+	const scrubbed = scrubSensitiveText(code, apiKey).trim();
+	return scrubbed ? boundScrubbedField(scrubbed, CURSOR_PROVIDER_ERROR_IDENTITY_FIELD_MAX) : undefined;
+};
+
+function formatBoundedErrorIdentity(error: unknown, apiKey: string | undefined, scrubbedMessage: string): string | undefined {
+	const record = asRecord(error);
+	if (!record && !(error instanceof Error)) return undefined;
+	const bits: string[] = [];
+	const name = getErrorName(error, record);
+	if (name && name !== "Error") {
+		const scrubbedName = boundScrubbedField(scrubSensitiveText(name, apiKey).trim(), CURSOR_PROVIDER_ERROR_IDENTITY_FIELD_MAX);
+		if (scrubbedName) bits.push(scrubbedName);
+	}
+	const code = formatBoundedErrorCode(record?.code, apiKey);
+	if (code) bits.push(`code=${code}`);
+	const causeValue = record?.cause;
+	if (causeValue !== undefined && causeValue !== error) {
+		const causeRecord = asRecord(causeValue);
+		const causeBits: string[] = [];
+		const causeName = getErrorName(causeValue, causeRecord);
+		if (causeName && causeName !== "Error") {
+			const scrubbedCauseName = boundScrubbedField(scrubSensitiveText(causeName, apiKey).trim(), CURSOR_PROVIDER_ERROR_IDENTITY_FIELD_MAX);
+			if (scrubbedCauseName) causeBits.push(scrubbedCauseName);
+		}
+		const causeCode = formatBoundedErrorCode(causeRecord?.code, apiKey);
+		if (causeCode) causeBits.push(`code=${causeCode}`);
+		const causeMessage = causeValue instanceof Error
+			? causeValue.message
+			: getErrorStringField(causeRecord, "message");
+		const scrubbedCauseMessage = causeMessage
+			? boundScrubbedField(scrubSensitiveText(causeMessage, apiKey).trim(), CURSOR_PROVIDER_ERROR_IDENTITY_FIELD_MAX)
+			: "";
+		if (
+			scrubbedCauseMessage &&
+			scrubbedCauseMessage !== scrubbedMessage &&
+			!scrubbedMessage.includes(scrubbedCauseMessage)
+		) {
+			causeBits.push(scrubbedCauseMessage);
+		}
+		if (causeBits.length > 0) bits.push(`cause=${causeBits.join(" ")}`);
+	}
+	return bits.length > 0 ? `(${bits.join("; ")})` : undefined;
+};
+
+function boundLocalAuthDiagnostic(body: string, max: number, prefix?: string): string {
+	if (body.length <= max) return body;
+	if (prefix && body.startsWith(`${prefix}: `)) {
+		const restMax = Math.max(0, max - prefix.length - 2);
+		return `${prefix}: ${boundScrubbedField(body.slice(prefix.length + 2), restMax)}`;
+	}
+	return boundScrubbedField(body, max);
+};
+
+function composeCursorProviderErrorMessage(
+	scrubbed: string,
+	error: unknown,
+	apiKey: string | undefined,
+	stage: CursorProviderFailureStage | undefined,
+	prefix?: string,
+): string {
+	const boundedMessage = boundScrubbedField(scrubbed, CURSOR_PROVIDER_ERROR_IDENTITY_FIELD_MAX);
+	const identity = formatBoundedErrorIdentity(error, apiKey, boundedMessage);
+	const detail = identity ? `${boundedMessage} ${identity}` : boundedMessage;
+	const body = prefix ? `${prefix}: ${detail}` : detail;
+	const marker = stage ? ` [stage: ${stage}]` : "";
+	const maxBody = Math.max(0, CURSOR_PROVIDER_LOCAL_AUTH_DIAGNOSTIC_MAX - marker.length);
+	return `${boundLocalAuthDiagnostic(body, maxBody, prefix)}${marker}`;
+};
+
 export function sanitizeCursorProviderError(
 	error: unknown,
 	apiKey?: string,
 	runtimeTarget?: CursorRuntime,
+	stage?: CursorProviderFailureStage,
 ): string {
 	const record = asRecord(error);
 	const message = error instanceof Error ? error.message : typeof error === "string" ? error : "";
 	if (message === MISSING_CURSOR_API_KEY_MESSAGE) return MISSING_CURSOR_API_KEY_MESSAGE;
 	const scrubbed = scrubSensitiveText(message, apiKey).trim();
+	const failureStage = readCursorProviderFailureStage(stage);
+	if (scrubbed.startsWith(RETRYABLE_CURSOR_RUN_FAILURE_PREFIX)) {
+		const marker = failureStage ? ` [stage: ${failureStage}]` : "";
+		const maxBody = Math.max(0, CURSOR_PROVIDER_LOCAL_AUTH_DIAGNOSTIC_MAX - marker.length);
+		const body = boundLocalAuthDiagnostic(
+			scrubbed.includes("[stage:") ? scrubbed.replace(/\s*\[stage:[^\]]+\]\s*$/, "") : scrubbed,
+			maxBody,
+			RETRYABLE_CURSOR_RUN_FAILURE_PREFIX,
+		);
+		return appendCursorProviderFailureStage(body, failureStage);
+	}
 	const integrationMessage = runtimeTarget === "cloud"
 		? formatIntegrationNotConnectedError(error, record, scrubbed, apiKey)
 		: undefined;
@@ -380,14 +487,26 @@ export function sanitizeCursorProviderError(
 		return CLOUD_AUTH_CURSOR_SDK_ERROR_MESSAGE;
 	}
 	if (connectClassification?.kind === "unauthenticated" || unauthenticatedText) {
-		const detail = scrubbed || "unauthenticated";
-		return `${RETRYABLE_CURSOR_RUN_FAILURE_PREFIX}: ${detail}`;
+		return composeCursorProviderErrorMessage(
+			scrubbed || "unauthenticated",
+			error,
+			apiKey,
+			failureStage,
+			RETRYABLE_CURSOR_RUN_FAILURE_PREFIX,
+		);
 	}
 	if (isLikelyAuthError(scrubbed)) {
-		return runtimeTarget === "cloud" ? CLOUD_AUTH_CURSOR_SDK_ERROR_MESSAGE : AUTH_CURSOR_SDK_ERROR_MESSAGE;
+		if (runtimeTarget === "cloud") return CLOUD_AUTH_CURSOR_SDK_ERROR_MESSAGE;
+		return composeCursorProviderErrorMessage(scrubbed, error, apiKey, failureStage);
 	}
-	if (connectClassification?.kind === "network" || isCursorSdkConnectionStalledError(error) || isLikelyNetworkTimeout(scrubbed)) return NETWORK_CURSOR_SDK_ERROR_MESSAGE;
-	if (isGenericCursorRunFailureMessage(scrubbed)) return RETRYABLE_CURSOR_RUN_FAILURE_PREFIX;
-	if (isGenericErrorMessage(scrubbed)) return GENERIC_CURSOR_SDK_ERROR_MESSAGE;
-	return scrubbed || GENERIC_CURSOR_SDK_ERROR_MESSAGE;
-}
+	if (connectClassification?.kind === "network" || isCursorSdkConnectionStalledError(error) || isLikelyNetworkTimeout(scrubbed)) {
+		return appendCursorProviderFailureStage(NETWORK_CURSOR_SDK_ERROR_MESSAGE, failureStage);
+	}
+	if (isGenericCursorRunFailureMessage(scrubbed)) {
+		return appendCursorProviderFailureStage(RETRYABLE_CURSOR_RUN_FAILURE_PREFIX, failureStage);
+	}
+	if (isGenericErrorMessage(scrubbed)) {
+		return appendCursorProviderFailureStage(GENERIC_CURSOR_SDK_ERROR_MESSAGE, failureStage);
+	}
+	return appendCursorProviderFailureStage(scrubbed || GENERIC_CURSOR_SDK_ERROR_MESSAGE, failureStage);
+};

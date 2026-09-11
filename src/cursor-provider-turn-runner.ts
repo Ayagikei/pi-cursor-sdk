@@ -18,7 +18,7 @@ import {
 } from "./cursor-provider-turn-prepare.js";
 import { sendCursorProviderTurn } from "./cursor-provider-turn-send.js";
 import { emitDisplayOnlyTraceBlock } from "./cursor-display-only-trace.js";
-import { sanitizeCursorProviderError } from "./cursor-provider-errors.js";
+import { sanitizeCursorProviderError, type CursorProviderFailureStage } from "./cursor-provider-errors.js";
 import {
 	getCursorUnauthenticatedRetryDelaysMs,
 	getCursorUnauthenticatedRetryLimit,
@@ -64,6 +64,7 @@ export class CursorProviderTurnRunner {
 		let prepared: CursorProviderTurnPrepareResult | undefined;
 		let sendResult: CursorProviderTurnSendResult | undefined;
 		let liveCompletion: CursorLiveRunCompletion | undefined;
+		let failureStage: CursorProviderFailureStage | undefined;
 		const runFinalizer = new CursorRunFinalizer({
 			runnerParams: this.params,
 			sdkEventDebug: () => this.sdkEventDebug,
@@ -95,6 +96,7 @@ export class CursorProviderTurnRunner {
 				sdkProcessErrorGuard.containLocalTransportClosedPipe(() =>
 					invalidateSessionAgent(localScopeKey, { deadTransport: true }),
 				);
+				failureStage = "drain";
 				if (
 					(await drainExistingCursorLiveRunBeforeSend(stream, partial, model, context, options?.signal, this.sdkEventDebug)) ===
 					"stream_ended"
@@ -105,6 +107,7 @@ export class CursorProviderTurnRunner {
 			this.throwIfAborted();
 
 			this.resolvedApiKey = requireCursorApiKey(options);
+			failureStage = "prepare";
 			prepared = await prepareCursorProviderTurn({
 				params: this.params,
 				cwd,
@@ -118,6 +121,7 @@ export class CursorProviderTurnRunner {
 			for (let attempt = 0; ; attempt += 1) {
 				this.throwIfAborted();
 				try {
+					failureStage = "send";
 					sendResult = await sendCursorProviderTurn({
 						params: this.params,
 						prepared,
@@ -127,7 +131,7 @@ export class CursorProviderTurnRunner {
 						resolvedApiKey: this.resolvedApiKey,
 					});
 					const { send } = sendResult;
-
+					failureStage = "wait";
 					if (prepared.runtime.kind === "live") {
 						const livePrepared = requireLocalLivePreparedTurn(prepared);
 						if (attempt > 0) cursorLiveRuns.clearErrorForRetry(livePrepared.runtime.liveRun);
@@ -185,7 +189,7 @@ export class CursorProviderTurnRunner {
 					emitDisplayOnlyTraceBlock(
 						stream,
 						partial,
-						`Cursor SDK unauthenticated; retrying in ${delayMs / 1000}s (${attempt + 1}/${retryLimit}). ${sanitizeCursorProviderError(error, this.resolvedApiKey)}`,
+						`Cursor SDK unauthenticated; retrying in ${delayMs / 1000}s (${attempt + 1}/${retryLimit}). ${sanitizeCursorProviderError(error, this.resolvedApiKey, this.runtimeTarget, failureStage)}`,
 					);
 					const abortRegistration = sendResult?.abortRegistration;
 					if (abortRegistration) {
@@ -195,7 +199,7 @@ export class CursorProviderTurnRunner {
 				}
 			}
 		} catch (error) {
-			await runFinalizer.applyTerminalEvent({ kind: "error", prepared, error });
+			await runFinalizer.applyTerminalEvent({ kind: "error", prepared, error, stage: failureStage });
 		} finally {
 			await runFinalizer.cleanup(prepared, sendResult, liveCompletion);
 		}

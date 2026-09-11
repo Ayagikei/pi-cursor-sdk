@@ -110,6 +110,7 @@ export function resolveCursorRunOutcome(params: ResolveCursorRunOutcomeParams): 
 				failureDetail,
 				params.resolvedApiKey ?? params.optionsApiKey,
 				params.runtimeTarget,
+				"wait",
 			),
 		};
 	}

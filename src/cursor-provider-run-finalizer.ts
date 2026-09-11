@@ -9,6 +9,7 @@ import {
 	formatCursorSdkAbortMessage,
 	resolveCursorSdkAbortCause,
 	sanitizeCursorProviderError,
+	type CursorProviderFailureStage,
 } from "./cursor-provider-errors.js";
 import type { CursorRuntime } from "./cursor-config.js";
 import { CursorLiveRunAbortError } from "./cursor-live-run-coordinator.js";
@@ -37,7 +38,12 @@ export type CursorTurnTerminalEvent =
 			outcome: CursorRunOutcome;
 			displayOnlyTraceBlock?: string;
 	  }
-	| { kind: "error"; prepared: CursorProviderTurnPrepareResult | undefined; error: unknown };
+	| {
+			kind: "error";
+			prepared: CursorProviderTurnPrepareResult | undefined;
+			error: unknown;
+			stage?: CursorProviderFailureStage;
+	  };
 
 function applyLiveRunOutcome(
 	outcome: CursorRunOutcome,
@@ -114,7 +120,7 @@ export class CursorRunFinalizer {
 				if (!liveRun.disposed) {
 					cursorLiveRuns.markError(
 						liveRun,
-						sanitizeCursorProviderError(error, this.params.resolvedApiKey() ?? runnerParams.options?.apiKey, "local"),
+						sanitizeCursorProviderError(error, this.params.resolvedApiKey() ?? runnerParams.options?.apiKey, "local", "wait"),
 					);
 				}
 				this.safeCleanup(() => sdkEventDebug?.recordWaitResult({ status: "error", error: String(error) }));
@@ -133,7 +139,7 @@ export class CursorRunFinalizer {
 			this.terminalApplied = true;
 			return;
 		}
-		await this.applyErrorOutcome(event.prepared, event.error);
+		await this.applyErrorOutcome(event.prepared, event.error, event.stage);
 		this.terminalApplied = true;
 	}
 
@@ -195,7 +201,11 @@ export class CursorRunFinalizer {
 		}
 	}
 
-	private async applyErrorOutcome(prepared: CursorProviderTurnPrepareResult | undefined, error: unknown): Promise<void> {
+	private async applyErrorOutcome(
+		prepared: CursorProviderTurnPrepareResult | undefined,
+		error: unknown,
+		stage?: CursorProviderFailureStage,
+	): Promise<void> {
 		this.safeCleanup(() => prepared?.runtime.turnCoordinator.discardIncompleteStartedToolCalls(
 			buildIncompleteCursorToolRunOutcome({
 				status: error instanceof CursorLiveRunAbortError ? "cancelled" : "error",
@@ -220,6 +230,7 @@ export class CursorRunFinalizer {
 					error,
 					this.params.resolvedApiKey() ?? this.params.runnerParams.options?.apiKey,
 					prepared?.runtimeTarget ?? this.params.runtimeTarget(),
+					stage,
 				),
 			);
 		}
