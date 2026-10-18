@@ -1,4 +1,9 @@
 import { vi } from "vitest";
+
+// Ordinary extension/event tests must never install persistent hooks into process.cwd().
+// The real installer is exercised only by cursor-strip-coauthor.test.ts in owned repositories.
+vi.mock("../../src/cursor-strip-coauthor.js", () => ({ registerCursorStripCoauthorHooks: vi.fn() }));
+
 import type { Provider } from "@earendil-works/pi-ai";
 import { createEventBus, type ExtensionAPI, type ProviderConfig, type ToolInfo } from "@earendil-works/pi-coding-agent";
 import type { CursorNativeToolDisplayExtensionApi } from "../../src/cursor-native-tool-display-registration.js";

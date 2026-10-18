@@ -2,8 +2,14 @@
 
 ## Unreleased
 
+### Added
+
+- Install a repo-local `prepare-commit-msg` hook only in trusted Git sessions to strip Cursor coauthor trailers, including `--amend --no-verify`, before Git creates or signs the commit. Preserve body examples, other authors, signatures, and amend bookkeeping; leave foreign hooks untouched and decline custom hook paths or unsafe filesystem entries. Retire only byte-identical legacy extension hooks.
+
 ### Fixed
 
+- Map Cursor SDK `reasoning_effort` to pi's native thinking controls, preserving catalog defaults when no off value is exposed and omitting the active effort parameter when boolean thinking is off.
+- Backport upstream #344: omit Grok 4.7's outgoing catalog-default `context` to avoid `Invalid parameters for registry model`. Preserve pi context metadata, non-default contexts, effort, and speed settings.
 - Hold Cursor SDK NAL stall probes while `cursor_ask_question` is waiting on pi UI, matching native `askQuestionInteractionQuery` pause behavior, and keep `local.enableAgentRetries: true`. A typed custom answer that outlasts the 30s stall / ~5-minute retry budget otherwise finishes the turn as `This operation was aborted` when the tool later returns.
 - Recreate a pooled local Cursor SDK agent after five minutes without a successful send instead of reusing a possibly dead transport. Idle replacement uses `Agent.create`, not `Agent.resume`. This is a local pooling policy, not a proven Cursor SDK session TTL.
 - Keep scrubbed original local auth/error details (name/code/cause) and annotate the provider failure stage instead of replacing local auth failures with generic invalid-key guidance.

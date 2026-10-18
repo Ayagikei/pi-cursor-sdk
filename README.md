@@ -200,7 +200,7 @@ pi --model cursor/claude-opus-4-8@300k
 How to read model IDs:
 
 - `cursor/...` is the Cursor provider registered by this extension
-- `@1m`, `@272k`, and `@300k` are context-window variants
+- `@1m`, `@272k`, `@300k`, `@256k`, and `@500k` are context-window variants
 - `:medium`, `:high`, `:xhigh`, and `:max` are pi thinking-level suffixes for models where the Cursor SDK exposes the corresponding pi-controllable thinking parameter
 - unambiguous latest-style Cursor aliases returned by `Cursor.models.list()` are registered too, using the same context suffixes when the target model has context variants; aliases shared by multiple base models or colliding with a base model ID are skipped because their SDK resolution and displayed metadata can diverge
 
@@ -215,25 +215,28 @@ pi --model cursor/gpt-5.5@1m --thinking medium
 
 Cursor `context` becomes a pi-visible model variant because it changes pi's native `contextWindow`. For models that expose Cursor's boolean `fast` parameter, the extension also registers virtual `:fast` and `:slow` model aliases such as `cursor/grok-4.6:slow` and `cursor/gpt-5.5@1m:fast`. Those aliases are selection-only controls for subagents and workflow-spawned agents: they send the same Cursor SDK model ID plus an explicit `fast=true` or `fast=false` param, and they take precedence over saved `/cursor-fast` session/global defaults. Cursor SDK conversation mode remains extension state, not model identity. Alias model IDs use their selected SDK ID for Cursor-only state such as fast defaults, with read fallback for older defaults keyed by the underlying Cursor base model.
 
+Grok 4.7 exposes `@500k` and `@256k` through live discovery. The extension omits its catalog-default `context` parameter when sending because Cursor rejects the explicit default value; pi's context metadata stays unchanged. Non-default contexts, effort, and speed settings remain explicit.
+
 ## Thinking support
 
 All Cursor SDK models should be treated as thinking-capable Cursor models. The `thinking` column in `pi --list-models` is narrower: it only means pi can control a Cursor SDK thinking parameter for that model.
 
-For models where Cursor exposes `reasoning`, `effort`, or boolean `thinking` parameters, pi's native thinking controls map to Cursor SDK params:
+For models where Cursor exposes `reasoning`, `effort`, `reasoning_effort`, or boolean `thinking` parameters, pi's native thinking controls map to Cursor SDK params:
 
 - `reasoning=none|low|medium|high|extra-high`
 - `effort=low|medium|high|xhigh|max`
+- `reasoning_effort=low|medium|high|xhigh` (and other values the catalog advertises)
 - `thinking=false|true` for boolean thinking models
 
-Pi `xhigh` maps to Cursor `xhigh` or `extra-high`; Pi `max` maps only to a distinct Cursor `max` value.
+Pi `xhigh` maps to Cursor `xhigh` or `extra-high`; Pi `max` maps only to a distinct Cursor `max` value. `effort` takes precedence over `reasoning_effort` when both are exposed. Pi `off` keeps the catalog default when the model exposes no off value.
 
-For Claude models with both `thinking` and `effort`, pi thinking `off` sends `thinking=false` and omits `effort`.
+For models with boolean `thinking` and either `effort` or `reasoning_effort`, pi thinking `off` sends `thinking=false` and omits the active effort parameter.
 
 ### Why some Cursor models show `thinking=no`
 
 In `pi --list-models`, `thinking=no` means pi cannot control the model's thinking level with `--thinking`, a final `:medium` model suffix, or shift+tab. It does not mean the Cursor model cannot think.
 
-Some Cursor SDK models do not expose a `reasoning`, `effort`, or `thinking` parameter for the extension to set. Cursor thinking is still enabled/supported by the model, and Cursor may still emit thinking deltas. The extension surfaces those deltas through pi's native thinking rendering when the SDK emits them.
+Some Cursor SDK models do not expose a `reasoning`, `effort`, `reasoning_effort`, or `thinking` parameter for the extension to set. Cursor thinking is still enabled/supported by the model, and Cursor may still emit thinking deltas. The extension surfaces those deltas through pi's native thinking rendering when the SDK emits them.
 
 ## Fast mode
 
@@ -452,6 +455,14 @@ Local resume cleanup is explicit and session-ledger scoped:
 It only deletes superseded local `agent-*` IDs that this extension recorded as cleanup candidates, one exact ID at a time through the Cursor SDK using the candidate's recorded store identity (or the SDK default workspace store for legacy candidates without one), and protects agents still resumable from any session-tree branch. Before SDK deletion it verifies and fsyncs an exact intent in the Pi session JSONL, then verifies and fsyncs the result; a missing or non-durable intent prevents deletion, while a missing or non-durable result leaves the durable intent—and a conservative current-process marker—blocking automatic retry. A candidate with a recorded store identity that is invalid for the current session is durably marked non-retryable and excluded from later cleanup attempts. It does not sweep any SDK store or call lower-level empty delete filters. Removing a pi session file does not automatically remove its persisted store directory. After permanently retiring that session and confirming no pi process is using it, a recorded root may be removed manually only when it is the session-derived `<getDefaultSdkStateRoot(cwd)>/pi-sessions/<session-hash>/` path. Never manually remove the SDK default workspace root, which legacy entries may record and other sessions may share.
 
 Only enabled local safety values are passed to `Agent.create({ local })`; false/default values are omitted to preserve the current local-agent behavior. Local force is one-shot/manual-only through CLI/env and is passed only to the next `Agent.send({ local: { force: true } })`. Local resume is enabled by default for local runtime; opt out with `local.resume: false`, `--cursor-no-local-resume`, or `PI_CURSOR_LOCAL_RESUME=0`. Changes take effect on the next turn without recreating a healthy pooled agent.
+
+## Git attribution cleanup
+
+When this extension is enabled, `session_start` in a trusted Git project installs a self-contained `prepare-commit-msg` hook in the repository's default shared Git hooks directory. This applies to the session regardless of the selected model. The hook removes only Cursor `Co-authored-by` entries in the terminal trailer block, including commits made with `--amend --no-verify`. It does not rewrite completed commits, signatures, or Git notes. Trailers added later by an editor are outside this hook's scope.
+
+Installation is skipped for any `core.hooksPath` override or unsafe filesystem path. Existing foreign hooks are not overwritten. Only byte-identical legacy `commit-msg` and `post-commit` hooks from this extension are removed during migration; customized hooks are left alone.
+
+The hook persists after disabling or removing the extension and records the Node executable used at installation. If that executable disappears, filtering stops without blocking commits. To disable cleanup, first disable/remove the extension so it cannot reinstall the hook, then inspect `<git-common-dir>/hooks/prepare-commit-msg` and remove it only if it is the extension-owned hook marked `pi-cursor-sdk:strip-cursor-coauthor`. Find `<git-common-dir>` with `git rev-parse --path-format=absolute --git-common-dir`. To repair a stale runtime path, remove that owned hook and start another trusted Pi session to reinstall it. Do not remove other hooks.
 
 ## Images
 

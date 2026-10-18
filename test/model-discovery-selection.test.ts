@@ -125,4 +125,36 @@ describe("buildCursorModelSelection", () => {
 		expect(getCursorModelMetadata("gpt-5.4@1m")?.defaultParams[0].value).toBe("1m");
 		expect(getCursorModelMetadata("gpt-5.4@1m")?.thinkingLevelMap?.medium).toBe("medium");
 	});
+
+	it.each(["effort", "reasoning_effort"])("maps boolean thinking with %s and removes that key on off", (effortId) => {
+		register([{
+			id: "boolean-thinking",
+			displayName: "Boolean Thinking",
+			parameters: [
+				{ id: "thinking", displayName: "Thinking", values: [{ value: "false" }, { value: "true" }] },
+				{ id: effortId, displayName: "Effort", values: [{ value: "low" }, { value: "high" }] },
+			],
+			variants: [{ displayName: "Default", isDefault: true, params: [{ id: "thinking", value: "true" }, { id: effortId, value: "low" }] }],
+		}]);
+		expect(buildCursorModelSelection("boolean-thinking", "high").params).toEqual([
+			{ id: "thinking", value: "true" }, { id: effortId, value: "high" },
+		]);
+		expect(buildCursorModelSelection("boolean-thinking", "off").params).toEqual([{ id: "thinking", value: "false" }]);
+	});
+
+	it("prefers effort over reasoning_effort when both are advertised", () => {
+		register([{
+			id: "both-efforts",
+			displayName: "Both Efforts",
+			parameters: [
+				{ id: "effort", displayName: "Effort", values: [{ value: "low" }, { value: "extra-high" }] },
+				{ id: "reasoning_effort", displayName: "Reasoning Effort", values: [{ value: "medium" }, { value: "high" }] },
+			],
+			variants: [{ displayName: "Default", params: [{ id: "effort", value: "low" }, { id: "reasoning_effort", value: "medium" }] }],
+		}]);
+		expect(getCursorModelMetadata("both-efforts")?.thinkingLevelMap).toMatchObject({ xhigh: "extra-high", high: null });
+		expect(buildCursorModelSelection("both-efforts", "xhigh").params).toEqual([
+			{ id: "effort", value: "extra-high" }, { id: "reasoning_effort", value: "medium" },
+		]);
+	});
 });

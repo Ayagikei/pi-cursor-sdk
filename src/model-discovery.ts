@@ -53,6 +53,7 @@ export interface CursorModelMetadata {
 	selectionModelId: string;
 	displayName: string;
 	defaultParams: ModelParameterValue[];
+	catalogDefaultContext?: string;
 	context?: string;
 	contextWindow: number;
 	supportsFast: boolean;
@@ -64,6 +65,7 @@ export interface CursorModelMetadata {
 		context: boolean;
 		reasoning: boolean;
 		effort: boolean;
+		reasoning_effort: boolean;
 		thinking: boolean;
 		fast: boolean;
 	};
@@ -112,7 +114,7 @@ function mapComparableLevel(
 
 function getThinkingLevelMap(item: ModelListItem): ThinkingLevelMap | undefined {
 	const reasoningParameter = getParameter(item, "reasoning");
-	const effortParameter = getParameter(item, "effort");
+	const effortParameter = getParameter(item, "effort") ?? getParameter(item, "reasoning_effort");
 	const thinkingParameter = getParameter(item, "thinking");
 	const valueParameter = effortParameter ?? reasoningParameter ?? thinkingParameter;
 	if (!valueParameter) return undefined;
@@ -210,6 +212,7 @@ function toMetadata(
 	piModelId: string,
 	selectionModelId: string,
 	defaultParams: ModelParameterValue[],
+	catalogDefaultContext: string | undefined,
 	context: string | undefined,
 	contextWindowCache: Map<string, number>,
 	contextWindowKeys: readonly string[],
@@ -223,6 +226,7 @@ function toMetadata(
 		selectionModelId,
 		displayName: item.displayName || item.id,
 		defaultParams: cloneParams(defaultParams),
+		catalogDefaultContext,
 		...(context ? { context } : {}),
 		contextWindow: getContextWindow(contextWindowCache, contextWindowKeys, context, item.id),
 		supportsFast: getParameter(item, "fast") !== undefined,
@@ -234,6 +238,7 @@ function toMetadata(
 			context: getParameter(item, "context") !== undefined,
 			reasoning: getParameter(item, "reasoning") !== undefined,
 			effort: getParameter(item, "effort") !== undefined,
+			reasoning_effort: getParameter(item, "reasoning_effort") !== undefined,
 			thinking: getParameter(item, "thinking") !== undefined,
 			fast: getParameter(item, "fast") !== undefined,
 		},
@@ -258,6 +263,7 @@ function registerModelItems(items: ModelListItem[]): ProviderModelConfig[] {
 	const contextWindowCache = loadContextWindowCache();
 	return getCursorModelSelectionIdentities(items).map(({ model: item, selectionModelId, context, fastOverride, piModelId, contextWindowKey, baseContextWindowKey }) => {
 		const defaultParams = getDefaultParams(item);
+		const catalogDefaultContext = getParamValue(defaultParams, "context");
 		const contextParams = context ? replaceParam(defaultParams, "context", context) : defaultParams;
 		const params = fastOverride === undefined ? contextParams : replaceParam(contextParams, "fast", fastOverride ? "true" : "false");
 		const metadata = toMetadata(
@@ -265,6 +271,7 @@ function registerModelItems(items: ModelListItem[]): ProviderModelConfig[] {
 			piModelId,
 			selectionModelId,
 			params,
+			catalogDefaultContext,
 			context,
 			contextWindowCache,
 			[piModelId, contextWindowKey, baseContextWindowKey],
@@ -310,11 +317,12 @@ function applyThinkingLevel(
 ): void {
 	const mapped = metadata.thinkingLevelMap?.[level];
 	if (mapped === undefined || mapped === null) return;
+	const effortId = metadata.parameterIds.effort ? "effort" : metadata.parameterIds.reasoning_effort ? "reasoning_effort" : undefined;
 
 	if (level === "off") {
 		if (metadata.parameterIds.thinking && mapped === "false") {
 			setParam(params, "thinking", mapped);
-			deleteParam(params, "effort");
+			if (effortId) deleteParam(params, effortId);
 			return;
 		}
 		if (metadata.parameterIds.reasoning) {
@@ -323,9 +331,9 @@ function applyThinkingLevel(
 		return;
 	}
 
-	if (metadata.parameterIds.effort) {
+	if (effortId) {
 		if (metadata.parameterIds.thinking) setParam(params, "thinking", "true");
-		setParam(params, "effort", mapped);
+		setParam(params, effortId, mapped);
 		return;
 	}
 
@@ -352,6 +360,13 @@ export function buildCursorModelSelection(
 
 	if (metadata.supportsFast && fastEnabled !== undefined) {
 		setParam(params, "fast", fastEnabled ? "true" : "false");
+	}
+
+	// Grok 4.7 rejects its explicit catalog-default context. Keep the selected
+	// variant's metadata intact and leave effort, fast and other contexts explicit.
+	if (metadata.baseModelId === "grok-4.7" && metadata.catalogDefaultContext !== undefined &&
+		getParamValue(params, "context") === metadata.catalogDefaultContext) {
+		deleteParam(params, "context");
 	}
 
 	return params.length > 0 ? { id: metadata.selectionModelId, params } : { id: metadata.selectionModelId };

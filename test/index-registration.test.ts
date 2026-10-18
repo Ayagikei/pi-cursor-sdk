@@ -27,6 +27,7 @@ vi.mock("../src/cursor-provider.js", () => ({
 }));
 
 import extensionFactory from "../src/index.js";
+import { registerCursorStripCoauthorHooks } from "../src/cursor-strip-coauthor.js";
 import { discoverModels } from "../src/model-discovery.js";
 import { acquireSessionCursorAgent, __testUtils as sessionAgentTestUtils } from "../src/cursor-session-agent.js";
 import { __testUtils as cursorSessionScopeTestUtils } from "../src/cursor-session-scope.js";
@@ -54,6 +55,8 @@ describe("extension registration and discovery", () => {
 		const pi = createExtensionPi();
 		const originalEmit = process.emit;
 		await extensionFactory(pi);
+		expect(vi.isMockFunction(registerCursorStripCoauthorHooks)).toBe(true);
+		expect(registerCursorStripCoauthorHooks).toHaveBeenCalledWith(pi);
 
 		expect(cursorSdkProcessErrorGuardTestUtils.activeSessionCount()).toBe(0);
 		await pi.runSessionStart();

@@ -1,0 +1,36 @@
+{
+  "provenance": {
+    "source": "Cursor.models.list({ apiKey })",
+    "sdkVersion": "1.0.28",
+    "liveObservedAt": "2026-10-18",
+    "cachedCatalogFetchedAt": "2026-10-17T07:27:58.267Z",
+    "note": "Parent authenticated live SDK catalog read on 2026-10-18 matched this cached Grok4.7 item. Copied from cache after subsequent network outage; no credentials included."
+  },
+  "model": {
+    "id": "grok-4.7",
+    "displayName": "Grok 4.7",
+    "parameters": [
+      { "id": "context", "displayName": "Context", "values": [{ "value": "256k", "displayName": "256K" }, { "value": "500k", "displayName": "500K" }] },
+      { "id": "reasoning_effort", "displayName": "Effort", "values": [{ "value": "low", "displayName": "Low" }, { "value": "medium", "displayName": "Medium" }, { "value": "high", "displayName": "High" }, { "value": "xhigh", "displayName": "Extra High" }] },
+      { "id": "fast", "displayName": "Fast", "values": [{ "value": "false" }, { "value": "true", "displayName": "Fast​​" }] }
+    ],
+    "variants": [
+      { "params": [{ "id": "context", "value": "256k" }, { "id": "reasoning_effort", "value": "low" }, { "id": "fast", "value": "false" }], "displayName": "Grok 4.7  Low" },
+      { "params": [{ "id": "context", "value": "256k" }, { "id": "reasoning_effort", "value": "low" }, { "id": "fast", "value": "true" }], "displayName": "Grok 4.7  Low Fast​​" },
+      { "params": [{ "id": "context", "value": "256k" }, { "id": "reasoning_effort", "value": "medium" }, { "id": "fast", "value": "false" }], "displayName": "Grok 4.7  Medium" },
+      { "params": [{ "id": "context", "value": "256k" }, { "id": "reasoning_effort", "value": "medium" }, { "id": "fast", "value": "true" }], "displayName": "Grok 4.7  Medium Fast​​" },
+      { "params": [{ "id": "context", "value": "256k" }, { "id": "reasoning_effort", "value": "high" }, { "id": "fast", "value": "false" }], "displayName": "Grok 4.7  High" },
+      { "params": [{ "id": "context", "value": "256k" }, { "id": "reasoning_effort", "value": "high" }, { "id": "fast", "value": "true" }], "displayName": "Grok 4.7  High Fast​​" },
+      { "params": [{ "id": "context", "value": "256k" }, { "id": "reasoning_effort", "value": "xhigh" }, { "id": "fast", "value": "false" }], "displayName": "Grok 4.7  Extra High" },
+      { "params": [{ "id": "context", "value": "256k" }, { "id": "reasoning_effort", "value": "xhigh" }, { "id": "fast", "value": "true" }], "displayName": "Grok 4.7  Extra High Fast​​" },
+      { "params": [{ "id": "context", "value": "500k" }, { "id": "reasoning_effort", "value": "low" }, { "id": "fast", "value": "false" }], "displayName": "Grok 4.7  Low", "isMaxMode": true },
+      { "params": [{ "id": "context", "value": "500k" }, { "id": "reasoning_effort", "value": "low" }, { "id": "fast", "value": "true" }], "displayName": "Grok 4.7  Low Fast​​", "isMaxMode": true },
+      { "params": [{ "id": "context", "value": "500k" }, { "id": "reasoning_effort", "value": "medium" }, { "id": "fast", "value": "false" }], "displayName": "Grok 4.7  Medium", "isMaxMode": true },
+      { "params": [{ "id": "context", "value": "500k" }, { "id": "reasoning_effort", "value": "medium" }, { "id": "fast", "value": "true" }], "displayName": "Grok 4.7  Medium Fast​​", "isMaxMode": true },
+      { "params": [{ "id": "context", "value": "500k" }, { "id": "reasoning_effort", "value": "high" }, { "id": "fast", "value": "false" }], "displayName": "Grok 4.7  High", "isMaxMode": true },
+      { "params": [{ "id": "context", "value": "500k" }, { "id": "reasoning_effort", "value": "high" }, { "id": "fast", "value": "true" }], "displayName": "Grok 4.7  High Fast​​", "isDefault": true, "isMaxMode": true },
+      { "params": [{ "id": "context", "value": "500k" }, { "id": "reasoning_effort", "value": "xhigh" }, { "id": "fast", "value": "false" }], "displayName": "Grok 4.7  Extra High", "isMaxMode": true },
+      { "params": [{ "id": "context", "value": "500k" }, { "id": "reasoning_effort", "value": "xhigh" }, { "id": "fast", "value": "true" }], "displayName": "Grok 4.7  Extra High Fast​​", "isMaxMode": true }
+    ]
+  }
+}

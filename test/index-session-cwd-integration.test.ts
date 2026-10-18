@@ -50,6 +50,14 @@ vi.mock("@cursor/sdk", () => ({
 	}),
 }));
 
+// Load the shared registration harness (including persistent-hook isolation) before index.
+import {
+	collectEvents,
+	createExtensionRegistrationPi,
+	makeContext,
+	makeModel,
+	makeProviderModelConfig,
+} from "./helpers/pi-harness.js";
 import { Agent, Cursor, type SDKAgent } from "@cursor/sdk";
 import extensionFactory from "../src/index.js";
 import { discoverModels } from "../src/model-discovery.js";
@@ -59,13 +67,6 @@ import { __testUtils as cursorSessionScopeTestUtils } from "../src/cursor-sessio
 import { __testUtils as cursorPiToolBridgeTestUtils } from "../src/cursor-pi-tool-bridge.js";
 import { __testUtils as cursorHttp1TestUtils } from "../src/cursor-http1.js";
 import { installCursorSessionStoreMock } from "./helpers/cursor-session-store.js";
-import {
-	collectEvents,
-	createExtensionRegistrationPi,
-	makeContext,
-	makeModel,
-	makeProviderModelConfig,
-} from "./helpers/pi-harness.js";
 
 const mockedDiscover = vi.mocked(discoverModels);
 const mockedAgentCreate = vi.mocked(Agent.create);

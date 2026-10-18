@@ -9,7 +9,7 @@ Implemented design target. This file describes the intended Cursor model UX and 
 Current implementation notes:
 
 - Cursor context variants use `base@context` pi model IDs.
-- Cursor `reasoning`, `effort`, and boolean `thinking` parameters are driven by pi native thinking when the Cursor SDK exposes those controls.
+- Cursor `reasoning`, `effort`, `reasoning_effort`, and boolean `thinking` parameters are driven by pi native thinking when the Cursor SDK exposes those controls.
 - Cursor `fast` is extension state by default; models that expose `fast` also get selection-only `:fast` / `:slow` virtual aliases for per-agent overrides.
 - Cursor SDK `mode` (`agent` or `plan`) is extension session state, not model identity, pi thinking, Cursor `fast`, or pi's separate plan-mode extension.
 - Cursor status uses one coordinated `ctx.ui.setStatus("cursor", ...)` value for fast, non-default plan mode, and the local-only `http1` transport marker; the default pi footer remains intact.
@@ -56,7 +56,7 @@ Make Cursor models feel native in pi by leaning on pi's existing model, thinking
 Main outcomes:
 
 - `pi --list-models` shows pi-native Cursor models with accurate `contextWindow`, pi-controllable thinking metadata, and conservative defaults where the Cursor SDK does not expose limits or capabilities.
-- `shift+tab` is pi's native thinking control and drives Cursor `reasoning` or `effort`.
+- `shift+tab` is pi's native thinking control and drives Cursor `reasoning`, `effort`, or `reasoning_effort`.
 - Cursor context options are represented as pi-visible model variants when they change native model metadata.
 - Cursor-only state (`fast` and Cursor SDK `mode`) is controlled by extension flags/commands and shown through native status text only when non-default.
 - The default pi footer remains intact.
@@ -150,6 +150,7 @@ Use native pi abstractions wherever possible:
 | Cursor `context` | pi-visible model variant because it changes `contextWindow` |
 | Cursor `reasoning` | pi native thinking via `thinkingLevelMap` |
 | Cursor `effort` | pi native thinking via `thinkingLevelMap` |
+| Cursor `reasoning_effort` | pi native thinking via `thinkingLevelMap` |
 | Cursor `thinking=false` | pi native `off` |
 | Cursor `fast` | extension state plus `:fast` / `:slow` virtual aliases for per-agent overrides |
 | Cursor SDK `mode` | extension session state; `agent` by default, `plan` via SDK-native mode |
@@ -219,7 +220,7 @@ Each registered model must set:
 
 - `id`: context-qualified pi model ID when needed. For SDK aliases, this uses the alias as the pi-visible ID and the alias is sent back to Cursor as `ModelSelection.id`.
 - `name`: human-readable Cursor display name plus context when useful.
-- `reasoning`: `true` only if a Cursor `reasoning`, `effort`, or `thinking` parameter can map to pi thinking. This controls pi's thinking UI and `pi --list-models` `thinking` column; it must not be used to claim whether the Cursor model can think internally. Cursor SDK models are thinking-capable even when this is `false`.
+- `reasoning`: `true` only if a Cursor `reasoning`, `effort`, `reasoning_effort`, or `thinking` parameter can map to pi thinking. This controls pi's thinking UI and `pi --list-models` `thinking` column; it must not be used to claim whether the Cursor model can think internally. Cursor SDK models are thinking-capable even when this is `false`.
 - `thinkingLevelMap`: model-specific pi-to-Cursor mapping for pi UI, clamping, persistence, and footer display.
 - `contextWindow`: parsed from context variant, else conservative fallback.
 - `maxTokens`: conservative explicit value until Cursor SDK exposes output limits.
@@ -239,6 +240,7 @@ Infer behavior from discovered params:
 | `context` with values | register pi-visible context variants |
 | `reasoning` | populate `thinkingLevelMap` |
 | `effort` | populate `thinkingLevelMap` |
+| `reasoning_effort` | populate `thinkingLevelMap` |
 | `thinking` with `true/false` | map `false` to pi `off`; map `true` to the enabled pi level chosen for boolean-only thinking |
 | `fast` with `true/false` | enable fast extension setting |
 
@@ -278,7 +280,7 @@ Do not add a context-cycle shortcut in the first pass. Context is a pi model var
 Important distinction:
 
 - **Cursor thinking support** applies to all Cursor SDK models. The extension should assume Cursor models can think and may emit thinking deltas.
-- **Pi-controllable thinking** means Cursor exposes a `reasoning`, `effort`, or `thinking` parameter that the extension can set from pi's native thinking level. These models register `reasoning: true` and show `thinking=yes` in `pi --list-models`.
+- **Pi-controllable thinking** means Cursor exposes a `reasoning`, `effort`, `reasoning_effort`, or `thinking` parameter that the extension can set from pi's native thinking level. These models register `reasoning: true` and show `thinking=yes` in `pi --list-models`.
 - **Cursor SDK thinking-control gap** means the model can still think, but the SDK does not expose a user-controllable thinking parameter for that model. These models register `reasoning: false` and show `thinking=no` in `pi --list-models` because pi cannot control a level for them. The extension still surfaces Cursor `thinking-delta` and summary events through pi's native thinking rendering when they are emitted.
 
 Do not mark a model `reasoning: true` only because it can think. That would make pi show controls such as `--thinking`, `:medium`, and shift+tab even though the extension cannot translate them into Cursor SDK params.
@@ -310,6 +312,9 @@ Important details:
 - Keep `xhigh` and `max` distinct. Cursor exposes both on some models, while `extra-high` remains an `xhigh` alias.
 - If Cursor exposes `reasoning=none`, map pi `off` to `none`.
 - If Cursor exposes `thinking=false`, map pi `off` to `false`.
+- Prefer `effort` over `reasoning_effort` when both are exposed; update that effort key without removing unrelated catalog defaults.
+- Pi `off` keeps the catalog default when the model exposes no off value; do not invent an explicit off/none param.
+- On models with boolean `thinking` and either effort key, pi `off` sends `thinking=false` and omits the active effort parameter.
 - `thinkingLevelMap` does not create Cursor SDK params by itself. It only controls pi-native behavior. The Cursor stream implementation must use the active pi thinking level plus the extension's discovered Cursor metadata to build `ModelSelection.params` for `Agent.create()`.
 
 For boolean-only `thinking`, unsupported pi levels must be explicit `null`; otherwise pi treats omitted non-`xhigh`/`max` levels as supported. Use this shape unless Cursor exposes richer values:
@@ -365,7 +370,7 @@ cursor/claude-opus-4-8@1m
 Each variant must:
 
 - have an entry in the extension metadata map that points back to the same Cursor base model ID,
-- include the selected Cursor `context` param when calling `Agent.create()`,
+- include the selected Cursor `context` param when calling `Agent.create()` unless a documented model-specific send rule omits a catalog-default value,
 - set pi `contextWindow` from that context value,
 - share the same `thinkingLevelMap` as the base model unless Cursor reports otherwise.
 
@@ -373,6 +378,12 @@ Reason:
 
 - pi context display and overflow logic must match the actual Cursor context.
 - pi has no generic provider-parameter system that can change `contextWindow` while keeping the same model ID.
+
+### Grok 4.7 default context send omission
+
+Grok 4.7's live catalog advertises `context=256k|500k`, with `500k` as the default. Local SDK 1.0.28 probes reject explicit `context=500k` but accept an omitted context or explicit `256k`.
+
+Following [upstream #344](https://github.com/fitchmultz/pi-cursor-sdk/pull/344), omit only an outgoing context equal to Grok 4.7's base catalog default, including its unambiguous aliases. Capture that default before applying the selected context. Keep pi model metadata, non-default contexts, effort, and speed unchanged; omit nothing when no default context is available. This exception does not apply to other models.
 
 ## Fast Behavior
 
@@ -718,6 +729,21 @@ Fast toggle maps to the Cursor `fast` parameter. `--cursor-no-fast` and `:slow` 
 
 `shift+tab` maps the available low, medium, high, and xhigh levels to Cursor `effort`; levels without a catalog value do not invent one.
 
+### `grok-4.7`
+
+Supports `context=256k|500k`, `reasoning_effort=low|medium|high|xhigh`, and `fast=false|true`. Catalog defaults are `500k`, `high`, and `fast=true`.
+
+```text
+cursor/grok-4.7@500k
+cursor/grok-4.7@256k
+cursor/grok-4.7@500k:fast
+cursor/grok-4.7@500k:slow
+```
+
+Fast toggle and `:fast` / `:slow` aliases map to the Cursor `fast` parameter. `shift+tab` maps available pi levels to Cursor `reasoning_effort`; pi `off` keeps catalog defaults instead of inventing an off/none value.
+
+Outgoing selection omits `context` only for the catalog-default `@500k` variant; `@256k`, `reasoning_effort`, and `fast` remain explicit. See [Grok 4.7 default context send omission](#grok-47-default-context-send-omission).
+
 ## Validation Plan
 
 Before calling done:
@@ -730,6 +756,8 @@ Before calling done:
    - Cursor SDK mode session/CLI state and status behavior
    - `reasoning` mapping
    - `effort` mapping
+   - `reasoning_effort` mapping and `effort` precedence
+   - `grok-4.7` default-context send omission vs explicit `@256k`
    - boolean `thinking` maps to pi `off` / enabled levels
    - pi `xhigh` preference order: `xhigh`, then `extra-high`
    - pi `max` maps only to Cursor `max`
